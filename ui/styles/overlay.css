@@ -1,12 +1,70 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: transparent;
+  width: 100%; height: 100%;
+  overflow: hidden; background: transparent;
+  user-select: none;
 }
+
+#snap-canvas, #gif-canvas {
+  position: fixed; top: 0; left: 0;
+  width: 100%; height: 100%;
+  cursor: crosshair;
+}
+
+#drag-region {
+  position: fixed;
+  border: 2px solid #00aaff;
+  background: transparent;
+  cursor: move;
+  min-width: 50px; min-height: 50px;
+}
+
+.drag-info {
+  position: absolute; top: -24px; left: 0;
+  color: #00aaff; font: 14px monospace; white-space: nowrap;
+}
+
+.drag-confirm {
+  position: absolute; bottom: -28px; right: 0;
+  color: #fff; background: #00aaff;
+  padding: 2px 8px; font-size: 12px; border-radius: 3px;
+}
+
+.drag-handle {
+  position: absolute; width: 8px; height: 8px; background: #00aaff;
+}
+.drag-handle-tl { top: -4px; left: -4px; cursor: nw-resize; }
+.drag-handle-tr { top: -4px; right: -4px; cursor: ne-resize; }
+.drag-handle-bl { bottom: -4px; left: -4px; cursor: sw-resize; }
+.drag-handle-br { bottom: -4px; right: -4px; cursor: se-resize; }
+
+#record-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: rgba(30, 30, 30, 0.95);
+  border-radius: 8px; color: #fff; font-size: 14px;
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  -webkit-app-region: drag;
+}
+
+.record-indicator {
+  color: #ff4444; font-size: 18px;
+  animation: blink 1s infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.record-timer { font-family: monospace; font-size: 16px; min-width: 50px; }
+
+.record-btn {
+  -webkit-app-region: no-drag;
+  background: #444; color: #fff; border: none;
+  padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.record-btn:hover { background: #555; }
+.record-btn-stop { background: #cc3333; }
+.record-btn-stop:hover { background: #ee4444; }
