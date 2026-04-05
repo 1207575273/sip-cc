@@ -1,0 +1,234 @@
+# sip-cc 开发经验总结
+
+## 项目背景
+
+sip-cc 是一款跨平台轻量截屏 + GIF 录制工具，基于 Tauri v2（Rust 核心 + WebView UI），目标是替代 Snipaste 并补充 GIF 录制功能。核心约束：内存 < 50MB、Windows 双击即用、极致小巧。
+
+---
+
+## 踩坑记录
+
+### 坑 1：截屏后遮罩窗口不退出，整个屏幕卡死
+
+**现象**：截屏保存成功后，遮罩消失但鼠标键盘被"幽灵窗口"拦截，无法操作桌面，只能重启电脑。
+
+**根因**：前端 JS 调用 `win.hide()` + `win.close()` 关闭 fullscreen + always_on_top 的透明窗口。在 Windows 上，`close()` 可能静默失败，隐藏的全屏窗口仍然占据输入焦点，拦截所有鼠标事件。
+
+**解决**：
+1. 窗口关闭职责从前端移到 Rust 端（`close_all_overlays` 函数）
+2. 关闭三步走：`set_always_on_top(false)` → `set_fullscreen(false)` → `close()`
+3. 前端保留 `invoke("close_overlay")` 作为兜底
+
+**教训**：WebView 前端的窗口操作 API 在 Windows 上不可靠，涉及系统级窗口属性（全屏、置顶）的操作必须在 Rust 端完成。
+
+---
+
+### 坑 2：保存截屏后整个应用进程退出
+
+**现象**：截屏保存成功，遮罩关闭，但托盘图标消失，应用直接退出。
+
+**根因**：Tauri 默认行为——最后一个窗口关闭时自动退出进程。`tauri.conf.json` 中 `windows: []`（无主窗口），overlay 窗口一关就没有窗口了，触发自动退出。
+
+**解决**：将 `.run()` 改为 `.build().run()` 并拦截 `ExitRequested` 事件：
+```rust
+.build(tauri::generate_context!())
+.run(|_app, event| {
+    if let tauri::RunEvent::ExitRequested { api, .. } = event {
+        api.prevent_exit();
+    }
+});
+```
+
+**教训**：托盘应用（无主窗口）必须显式阻止 Tauri 的自动退出行为。
+
+---
+
+### 坑 3：截屏截到遮罩自身
+
+**现象**：保存的截图里包含了半透明黑色遮罩和蓝色选区框。
+
+**根因**：初始设计是"打开遮罩 → 用户选区 → 关遮罩 → 截屏 → 裁剪"。但 xcap 截取的是屏幕实时画面，如果遮罩还没完全消失（Windows 窗口关闭有延迟），就会截到遮罩。
+
+**解决**：架构重构为**预截屏模式**——F1 按下时先截全屏存内存（`ScreenBuffer`），再打开遮罩。用户选区后从内存中的图裁剪，完全不受遮罩影响。
+
+```
+之前：F1 → 打开遮罩 → 选区 → 关遮罩 → 截屏 → 裁剪（有时序问题）
+现在：F1 → 截全屏存内存 → 打开遮罩 → 选区 → 从内存裁剪（100% 可靠）
+```
+
+**教训**：截屏工具的正确架构是"先拍照后选区"，而不是"先选区后拍照"。Snipaste 就是这么做的。
+
+---
+
+### 坑 4：IPC 命令中关闭调用者窗口导致死锁
+
+**现象**：GIF 录制时，点击"开始录制"后整个应用未响应。
+
+**根因**：`gif_start` IPC 命令是从 overlay 窗口的 WebView 发起的。命令内部调用 `close_all_overlays()` 销毁了发起命令的 WebView 窗口，相当于摧毁了命令的执行环境。后续代码（创建 RecordBar 窗口）执行时环境已经不存在了。
+
+**解决**：所有窗口关闭操作移到**独立线程 + 延迟执行**：
+```rust
+let app_clone = app.clone();
+std::thread::spawn(move || {
+    std::thread::sleep(Duration::from_millis(100)); // 等命令先返回
+    close_all_overlays(&app_clone);
+});
+```
+
+**教训**：IPC 命令不能在执行过程中销毁发起调用的窗口。必须让命令先返回，再异步关窗口。
+
+---
+
+### 坑 5：DPI 缩放导致截屏区域偏移
+
+**现象**：在 125% 缩放的 Windows 上，框选的区域和实际保存的截图区域不一致，有明显偏移。
+
+**根因**：WebView 中鼠标坐标是 CSS 逻辑像素（受 Windows 缩放影响），但 xcap 截屏返回的是物理像素。125% 缩放下，逻辑坐标 (100,100) 对应物理坐标 (125,125)。
+
+**解决**：Rust 端获取主显示器的 `scale_factor()`，将前端传来的逻辑坐标乘以缩放因子：
+```rust
+let scale = get_scale_factor(); // 1.25
+let phys_x = (region.x as f64 * scale) as u32;
+```
+
+WAL 日志同时记录两组坐标方便排查：
+```
+[SNAP] 裁剪选区 | logical=384,217,768,432 | physical=480,271,960,540 | scale=1.25
+```
+
+**教训**：跨 WebView 和原生 API 传递坐标时，DPI 缩放是必须处理的。Windows 上大部分笔记本都不是 100% 缩放。
+
+---
+
+### 坑 6：GIF 录制崩溃（Frame 尺寸不匹配 panic）
+
+**现象**：GIF 录制启动后立即崩溃，WAL 日志只有"开始录制"没有后续。
+
+**根因**：`gif` crate 的 `Frame::from_rgba_speed(width, height, pixels)` 要求 `pixels.len() == width * height * 4`。但 `crop_rgba` 有边界保护，当选区超出屏幕边缘时实际裁剪尺寸会比请求的小，导致像素数据长度 ≠ width × height × 4，直接 panic。
+
+**解决**：`add_frame` 改为接受裁剪后的**实际尺寸**而非请求尺寸：
+```rust
+encoder.add_frame(cropped.as_raw(), cropped.width() as u16, cropped.height() as u16)
+```
+
+同时录制循环加错误恢复：截屏失败跳过该帧继续，裁剪/编码失败才停止。
+
+**教训**：永远不要假设裁剪输出的尺寸等于请求的尺寸，边界保护会改变实际尺寸。
+
+---
+
+### 坑 7：WebView 窗口复用后鼠标选区异常
+
+**现象**：第一次截屏/录制正常，第二次开始鼠标拖拽画矩形时坐标完全错乱。
+
+**根因**：两层问题叠加：
+
+1. **事件监听器泄漏**：`container.innerHTML = ""` 只移除 DOM，但 `document.addEventListener("keydown", ...)` 注册的监听器不会被移除。多次切换模式后旧监听器叠加，导致行为异常。
+
+2. **Canvas 尺寸为 0**：Rust 先发 `overlay-mode` 事件再 `show` 窗口。前端收到事件时窗口还没展开，`window.innerWidth` 为 0，canvas 尺寸 0×0。
+
+**解决**：
+1. 每个 mount 函数返回 `cleanup` 函数，切换模式前先调 cleanup 移除所有事件监听器
+2. Rust 端改为先 `show_overlay()` → 等 50ms → 再 `emit("overlay-mode")`
+3. 前端 `switchMode` 里用 `waitForWindowReady()` 循环等 `innerWidth > 100` 再挂载
+
+**教训**：窗口复用模式下，DOM 清理不等于事件清理，必须手动管理事件监听器的生命周期。异步窗口操作要注意时序——先确保窗口就绪再初始化内容。
+
+---
+
+### 坑 8：内存占用过高（120MB+）
+
+**现象**：每次按 F1/F3 内存飙升 30-40MB，多次操作后超过 120MB。
+
+**根因**：每次打开选区遮罩都**创建一个新的 WebView 窗口**。WebView2（Chromium 内核）每个实例至少 30-40MB。录制时同时开 3 个窗口（overlay + record-bar + record-region）。
+
+**解决**：启动时预创建一个隐藏的 overlay 窗口，F1/F3 时复用（show/hide），不再创建销毁。通过 Tauri 事件动态切换模式而非 URL 参数。
+
+```
+之前：每次 F1 → new WebviewWindow → ... → close（+30-40MB/次）
+现在：启动时 → new WebviewWindow（隐藏）→ F1 → show → ... → hide（0MB 增量）
+```
+
+**教训**：WebView 窗口是重量级资源，能复用绝不创建。Tauri 应用的内存优化核心就是减少 WebView 实例数量。
+
+---
+
+### 坑 9：rdev grab 在 Windows 上不稳定
+
+**现象**：使用 `rdev::grab`（`unstable_grab` feature）拦截 F1/F3 后，Ctrl+C 双击退出功能失效，偶尔键盘完全无响应。
+
+**根因**：`rdev::grab` 在 Windows 上使用低级键盘钩子（`SetWindowsHookEx`），`unstable_grab` feature 本身标注了不稳定。在高 DPI 或特定 Windows 版本上行为不一致。
+
+**解决**：退回 `rdev::listen`（只监听不拦截），放弃 F1/F3 的强制抢占。Ctrl+C 双击退出改用 `std::process::exit(0)` 进程级退出。
+
+**教训**：`rdev::grab` 的 `unstable_grab` 名副其实——确实不稳定。如果必须拦截按键，考虑用 Windows 原生 `RegisterHotKey` API 或 Tauri 的 `tauri-plugin-global-shortcut`。
+
+---
+
+## 架构决策记录
+
+### 决策 1：Tauri v2 而非纯 Rust GUI
+
+**背景**：要求跨平台、极致小、< 50MB 内存。候选方案：纯 Rust（iced/slint）、Tauri、Electron。
+
+**选择**：Tauri v2
+
+**理由**：
+- 纯 Rust GUI 框架（iced 未到 1.0，slint 有 GPL 许可证限制）选区 UI 开发成本高
+- Electron 太重（>100MB）
+- Tauri 分层清晰（Rust 引擎 + Web UI），WebView 用系统自带（Windows WebView2），二进制小
+
+**代价**：WebView 内存开销较大，必须通过窗口复用来控制。
+
+### 决策 2：预截屏架构
+
+**背景**：截屏时遮罩窗口在屏幕上，xcap 会截到遮罩。
+
+**选择**：F1 按下时先截全屏存内存，再打开遮罩，选区后从内存裁剪。
+
+**理由**：彻底消除时序问题，不依赖"关窗口→等→截屏"的不可靠流程。
+
+**代价**：内存中多存一份全屏图（1920×1080 RGBA ≈ 8MB），可接受。
+
+### 决策 3：窗口复用而非创建销毁
+
+**背景**：每次 F1/F3 创建 WebView 窗口导致 30-40MB 内存飙升。
+
+**选择**：启动时预创建隐藏 overlay，后续 show/hide 复用。
+
+**理由**：WebView 创建是重操作，复用后多次截屏不再增加内存。
+
+**代价**：需要手动管理事件监听器生命周期，增加了前端复杂度。
+
+### 决策 4：WAL 日志先行
+
+**背景**：调试截屏/录制问题时缺乏上下文，难以定位崩溃点。
+
+**选择**：所有关键操作先写日志再执行。
+
+**实际收益**：日志中"有开始截屏但没有截屏完成"直接定位到崩溃发生在截屏和保存之间，极大加速了排查。日志格式记录逻辑坐标、物理坐标、缩放因子，DPI 问题一目了然。
+
+---
+
+## 技术栈最终清单
+
+| 层级 | 技术 | 版本 |
+|------|------|------|
+| 应用框架 | Tauri | v2 |
+| 屏幕捕获 | xcap | 0.9 |
+| GIF 编码 | gif | 0.14 |
+| 全局快捷键 | rdev (listen) | 0.5 |
+| 剪贴板 | arboard | 3.6 |
+| 图像处理 | image | 0.25 |
+| 持久化 | serde + serde_json | 1.x |
+| 前端构建 | vite | 6.x |
+| 前端语言 | TypeScript (strict) | 5.x |
+| 前端框架 | 无（原生 DOM） | — |
+
+## 关键数据
+
+- 持久化目录：`~/.sip-cc/`（config.json + logs/ + output/）
+- WAL 日志命名：`yyyyMMddHHmmss.log`，保留 30 天
+- 默认 GIF 帧率：10fps，最大时长 3 分钟
+- Windows DPI 缩放：通过 `xcap::Monitor::scale_factor()` 获取
+- 快捷键：F1 截屏，F3 录制 GIF，双击 Ctrl+C 强制退出

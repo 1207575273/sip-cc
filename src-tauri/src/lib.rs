@@ -42,7 +42,7 @@ pub fn run() {
             hotkey::register::start_hotkey_listener(app.handle().clone());
 
             // 预创建 overlay 窗口（隐藏），后续 F1/F3 复用
-            let overlay = WebviewWindowBuilder::new(
+            let _overlay = WebviewWindowBuilder::new(
                 app, "overlay",
                 WebviewUrl::App("index.html?view=snap-overlay".into()),
             )
