@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::commands::snap_cmd::{close_all_overlays, get_scale_factor, Region};
-use crate::config::{ConfigManager, SelectionMode};
+use crate::config::ConfigManager;
 use crate::gif::frame::RecordingSession;
 use crate::output::save;
 use crate::wal::logger::WalLogger;
@@ -107,20 +107,9 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
 pub fn open_gif_overlay(app: &AppHandle) -> Result<(), String> {
     close_all_overlays(app);
 
-    let config_manager = app.state::<ConfigManager>();
-    let mode = {
-        let config = config_manager.config.lock().unwrap();
-        config.selection_mode.clone()
-    };
-
-    let view = match mode {
-        SelectionMode::Overlay => "gif-overlay",
-        SelectionMode::DragRegion => "gif-drag",
-    };
-
     WebviewWindowBuilder::new(
         app, "gif-selection",
-        WebviewUrl::App(format!("index.html?view={view}").into()),
+        WebviewUrl::App("index.html?view=gif-overlay".into()),
     )
     .title("sip-cc gif")
     .transparent(true)

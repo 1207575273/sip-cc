@@ -5,13 +5,6 @@ use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum SelectionMode {
-    Overlay,
-    DragRegion,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
 pub enum SaveDir {
     Desktop,
     Custom,
@@ -19,7 +12,6 @@ pub enum SaveDir {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    pub selection_mode: SelectionMode,
     pub save_dir: SaveDir,
     pub custom_save_dir: Option<String>,
     pub auto_start: bool,
@@ -30,7 +22,6 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            selection_mode: SelectionMode::Overlay,
             save_dir: SaveDir::Desktop,
             custom_save_dir: None,
             auto_start: false,
@@ -55,7 +46,6 @@ impl ConfigManager {
         }
     }
 
-    /// 统一持久化根目录：~/.sip-cc/
     pub fn base_dir() -> PathBuf {
         dirs::home_dir()
             .expect("failed to get home directory")

@@ -1,10 +1,10 @@
 use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu, CheckMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Manager,
 };
 
-use crate::config::{ConfigManager, SaveDir, SelectionMode};
+use crate::config::{ConfigManager, SaveDir};
 use crate::wal::logger::WalLogger;
 
 pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -16,16 +16,7 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let sep1 = PredefinedMenuItem::separator(app)?;
 
-    let mode_overlay = CheckMenuItem::with_id(
-        app, "mode_overlay", "全屏遮罩框选", true,
-        config.selection_mode == SelectionMode::Overlay, None::<&str>,
-    )?;
-    let mode_drag = CheckMenuItem::with_id(
-        app, "mode_drag", "可拖拽矩形框", true,
-        config.selection_mode == SelectionMode::DragRegion, None::<&str>,
-    )?;
-    let mode_submenu = Submenu::with_items(app, "选区模式", true, &[&mode_overlay, &mode_drag])?;
-
+    // 保存目录子菜单
     let dir_desktop = CheckMenuItem::with_id(
         app, "dir_desktop", "桌面（默认）", true,
         config.save_dir == SaveDir::Desktop, None::<&str>,
@@ -46,7 +37,7 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::with_items(app, &[
         &snap_item, &gif_item, &sep1,
-        &mode_submenu, &dir_submenu, &sep2,
+        &dir_submenu, &sep2,
         &auto_start, &sep3,
         &about_item, &quit_item,
     ])?;
@@ -76,22 +67,6 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("TRAY", "点击录制GIF菜单");
             let _ = crate::commands::gif_cmd::open_gif_overlay(app);
         }
-        "mode_overlay" => {
-            let mut config = config_manager.config.lock().unwrap();
-            let old = format!("{:?}", config.selection_mode);
-            config.selection_mode = SelectionMode::Overlay;
-            drop(config);
-            let _ = config_manager.save();
-            wal.info("CONFIG", &format!("配置变更 | key=selection_mode | old={old} | new=Overlay"));
-        }
-        "mode_drag" => {
-            let mut config = config_manager.config.lock().unwrap();
-            let old = format!("{:?}", config.selection_mode);
-            config.selection_mode = SelectionMode::DragRegion;
-            drop(config);
-            let _ = config_manager.save();
-            wal.info("CONFIG", &format!("配置变更 | key=selection_mode | old={old} | new=DragRegion"));
-        }
         "dir_desktop" => {
             let mut config = config_manager.config.lock().unwrap();
             config.save_dir = SaveDir::Desktop;
@@ -100,19 +75,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("CONFIG", "配置变更 | key=save_dir | new=Desktop");
         }
         "dir_custom" => {
-            let app_clone = app.clone();
-            std::thread::spawn(move || {
-                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                    let config_manager = app_clone.state::<ConfigManager>();
-                    let wal = app_clone.state::<WalLogger>();
-                    let mut config = config_manager.config.lock().unwrap();
-                    config.save_dir = SaveDir::Custom;
-                    config.custom_save_dir = Some(folder.to_string_lossy().to_string());
-                    drop(config);
-                    let _ = config_manager.save();
-                    wal.info("CONFIG", &format!("配置变更 | key=save_dir | new=Custom({})", folder.to_string_lossy()));
-                }
-            });
+            // 任务 13 中实现：打开文件夹选择对话框
         }
         "auto_start" => {
             let mut config = config_manager.config.lock().unwrap();
@@ -123,11 +86,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("CONFIG", &format!("配置变更 | key=auto_start | new={new_val}"));
         }
         "about" => {
-            rfd::MessageDialog::new()
-                .set_title("关于 sip-cc")
-                .set_description("sip-cc v0.1.0\n轻量截屏 + GIF 录制工具")
-                .set_level(rfd::MessageLevel::Info)
-                .show();
+            // 任务 13 中实现
         }
         "quit" => {
             wal.info("APP", "应用退出");

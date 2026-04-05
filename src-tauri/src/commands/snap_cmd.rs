@@ -1,10 +1,12 @@
+use image::RgbaImage;
 use serde::Deserialize;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
-use crate::config::{ConfigManager, SelectionMode};
+use crate::config::ConfigManager;
 use crate::output::{clipboard, save};
-use crate::snap::{capture, crop};
+use crate::snap::crop;
 use crate::wal::logger::WalLogger;
 
 #[derive(Debug, Deserialize)]
@@ -13,6 +15,11 @@ pub struct Region {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+}
+
+/// 预截的全屏图像，F1 按下时先截好存这里
+pub struct ScreenBuffer {
+    pub image: Mutex<Option<RgbaImage>>,
 }
 
 fn force_close_window(app: &AppHandle, label: &str) {
@@ -33,19 +40,16 @@ pub fn close_all_overlays(app: &AppHandle) {
 pub fn get_scale_factor() -> f64 {
     Monitor::all()
         .ok()
-        .and_then(|monitors| {
-            monitors.into_iter()
-                .find(|m| m.is_primary().unwrap_or(false))
-        })
+        .and_then(|monitors| monitors.into_iter().find(|m| m.is_primary().unwrap_or(false)))
         .and_then(|m| m.scale_factor().ok())
         .unwrap_or(1.0) as f64
 }
 
+/// 从预截的全屏图中裁剪选区并保存（遮罩已经关了不需要再截屏）
 #[tauri::command]
 pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
     let wal = app.state::<WalLogger>();
 
-    // 获取 DPI 缩放因子，将前端逻辑像素转为屏幕物理像素
     let scale = get_scale_factor();
     let phys_x = (region.x as f64 * scale) as u32;
     let phys_y = (region.y as f64 * scale) as u32;
@@ -53,23 +57,20 @@ pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
     let phys_h = (region.height as f64 * scale) as u32;
 
     wal.info("SNAP", &format!(
-        "开始截屏 | logical={},{},{},{} | physical={},{},{},{} | scale={}",
+        "裁剪选区 | logical={},{},{},{} | physical={},{},{},{} | scale={}",
         region.x, region.y, region.width, region.height,
         phys_x, phys_y, phys_w, phys_h, scale
     ));
 
-    // 先关闭 overlay 窗口
+    // 先关闭 overlay
     close_all_overlays(&app);
-    std::thread::sleep(std::time::Duration::from_millis(200));
 
-    // 截取全屏
-    let screen = capture::capture_primary_screen().map_err(|e| {
-        wal.error("SNAP", &format!("截屏失败 | reason={e}"));
-        e
-    })?;
+    // 从预截的全屏图中裁剪
+    let buffer = app.state::<ScreenBuffer>();
+    let guard = buffer.image.lock().map_err(|e| e.to_string())?;
+    let full_image = guard.as_ref().ok_or("没有预截的屏幕图像")?;
 
-    // 用物理像素坐标裁剪
-    let cropped = crop::crop_rgba(&screen.image, phys_x, phys_y, phys_w, phys_h)?;
+    let cropped = crop::crop_rgba(full_image, phys_x, phys_y, phys_w, phys_h)?;
 
     let config_manager = app.state::<ConfigManager>();
     let save_dir = config_manager.get_save_directory();
@@ -89,23 +90,25 @@ pub fn close_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// F1 触发：先截全屏存内存，再打开遮罩让用户选区
 pub fn open_snap_overlay(app: &AppHandle) -> Result<(), String> {
     close_all_overlays(app);
 
-    let config_manager = app.state::<ConfigManager>();
-    let mode = {
-        let config = config_manager.config.lock().unwrap();
-        config.selection_mode.clone()
-    };
+    let wal = app.state::<WalLogger>();
+    wal.info("SNAP", "F1/菜单触发，预截全屏");
 
-    let view = match mode {
-        SelectionMode::Overlay => "snap-overlay",
-        SelectionMode::DragRegion => "snap-drag",
-    };
+    // 先截全屏存到 ScreenBuffer
+    let screen = crate::snap::capture::capture_primary_screen()?;
+    let buffer = app.state::<ScreenBuffer>();
+    let mut guard = buffer.image.lock().map_err(|e| e.to_string())?;
+    *guard = Some(screen.image);
 
+    wal.info("SNAP", "全屏预截完成，打开选区遮罩");
+
+    // 再打开遮罩（此时屏幕截图已经存好了，遮罩不影响）
     WebviewWindowBuilder::new(
         app, "snap-selection",
-        WebviewUrl::App(format!("index.html?view={view}").into()),
+        WebviewUrl::App("index.html?view=snap-overlay".into()),
     )
     .title("sip-cc snap")
     .transparent(true)

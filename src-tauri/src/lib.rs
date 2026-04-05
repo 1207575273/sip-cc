@@ -8,6 +8,7 @@ mod tray;
 mod wal;
 
 use commands::gif_cmd::RecordingState;
+use commands::snap_cmd::ScreenBuffer;
 use config::ConfigManager;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -20,6 +21,9 @@ pub fn run() {
         .manage(WalLogger::new())
         .manage(RecordingState {
             session: Mutex::new(None),
+        })
+        .manage(ScreenBuffer {
+            image: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             commands::snap_cmd::snap_region,
