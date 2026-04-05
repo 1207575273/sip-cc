@@ -2,6 +2,8 @@
 
 轻量跨平台截屏 + GIF 录制工具。
 
+> **命名由来**：**sip** 致敬 **Snipaste**，**cc** = **c**ode**Y**ang + **C**hina，中国开发者 codeYang 出品。
+
 ## 为什么做这个
 
 Snipaste 好用但不支持 GIF 录制，市面上能录 GIF 的工具要么太重（Electron 套壳 100MB+），要么不跨平台。需要一个极简的工具：截屏 + 录 GIF，仅此而已。
