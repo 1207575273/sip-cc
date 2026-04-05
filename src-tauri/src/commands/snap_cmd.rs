@@ -1,7 +1,7 @@
 use image::RgbaImage;
 use serde::Deserialize;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager};
 use xcap::Monitor;
 
 use crate::config::ConfigManager;
@@ -17,26 +17,10 @@ pub struct Region {
     pub height: u32,
 }
 
-/// 预截的全屏图像，F1 按下时先截好存这里
 pub struct ScreenBuffer {
     pub image: Mutex<Option<RgbaImage>>,
 }
 
-fn force_close_window(app: &AppHandle, label: &str) {
-    if let Some(win) = app.get_webview_window(label) {
-        let _ = win.set_always_on_top(false);
-        let _ = win.set_fullscreen(false);
-        let _ = win.close();
-    }
-}
-
-pub fn close_all_overlays(app: &AppHandle) {
-    for label in &["snap-selection", "gif-selection"] {
-        force_close_window(app, label);
-    }
-}
-
-/// 获取主显示器的 DPI 缩放因子
 pub fn get_scale_factor() -> f64 {
     Monitor::all()
         .ok()
@@ -45,7 +29,51 @@ pub fn get_scale_factor() -> f64 {
         .unwrap_or(1.0) as f64
 }
 
-/// 从预截的全屏图中裁剪选区并保存（遮罩已经关了不需要再截屏）
+/// 显示 overlay 窗口（复用预创建的窗口）
+fn show_overlay(app: &AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.set_fullscreen(true);
+        let _ = win.set_always_on_top(true);
+        win.show().map_err(|e| format!("显示 overlay 失败: {e}"))?;
+        let _ = win.set_focus();
+        Ok(())
+    } else {
+        Err("overlay 窗口不存在".to_string())
+    }
+}
+
+/// 隐藏 overlay 窗口（不销毁，节省内存）
+pub fn hide_overlay(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.set_fullscreen(false);
+        let _ = win.set_always_on_top(false);
+        let _ = win.hide();
+    }
+}
+
+/// 关闭所有可能存在的浮动窗口（record-bar、record-region）
+pub fn close_floating_windows(app: &AppHandle) {
+    for label in &["record-bar", "record-region"] {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.close();
+        }
+    }
+}
+
+/// 前端调用：通知 overlay 切换到指定模式
+#[tauri::command]
+pub fn set_overlay_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    app.emit("overlay-mode", mode).map_err(|e| e.to_string())
+}
+
+/// 前端调用：关闭/隐藏 overlay
+#[tauri::command]
+pub fn close_overlay(app: AppHandle) -> Result<(), String> {
+    hide_overlay(&app);
+    Ok(())
+}
+
+/// 截屏命令：从预截的全屏图中裁剪
 #[tauri::command]
 pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
     let wal = app.state::<WalLogger>();
@@ -62,14 +90,14 @@ pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
         phys_x, phys_y, phys_w, phys_h, scale
     ));
 
-    // 异步关闭 overlay（不阻塞命令返回，避免摧毁调用者环境）
+    // 先隐藏 overlay（异步，避免卡死）
     let app_for_close = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        close_all_overlays(&app_for_close);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        hide_overlay(&app_for_close);
     });
 
-    // 从预截的全屏图中裁剪（不需要等窗口关闭）
+    // 从预截的全屏图中裁剪
     let buffer = app.state::<ScreenBuffer>();
     let guard = buffer.image.lock().map_err(|e| e.to_string())?;
     let full_image = guard.as_ref().ok_or("没有预截的屏幕图像")?;
@@ -88,39 +116,19 @@ pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
-pub fn close_overlay(app: AppHandle) -> Result<(), String> {
-    close_all_overlays(&app);
-    Ok(())
-}
-
-/// F1 触发：先截全屏存内存，再打开遮罩让用户选区
+/// F1 触发：先截全屏存内存，再显示 overlay
 pub fn open_snap_overlay(app: &AppHandle) -> Result<(), String> {
-    close_all_overlays(app);
-
     let wal = app.state::<WalLogger>();
     wal.info("SNAP", "F1/菜单触发，预截全屏");
 
-    // 先截全屏存到 ScreenBuffer
     let screen = crate::snap::capture::capture_primary_screen()?;
     let buffer = app.state::<ScreenBuffer>();
     let mut guard = buffer.image.lock().map_err(|e| e.to_string())?;
     *guard = Some(screen.image);
 
-    wal.info("SNAP", "全屏预截完成，打开选区遮罩");
+    wal.info("SNAP", "全屏预截完成，显示选区遮罩");
 
-    // 再打开遮罩（此时屏幕截图已经存好了，遮罩不影响）
-    WebviewWindowBuilder::new(
-        app, "snap-selection",
-        WebviewUrl::App("index.html?view=snap-overlay".into()),
-    )
-    .title("sip-cc snap")
-    .transparent(true)
-    .decorations(false)
-    .always_on_top(true)
-    .fullscreen(true)
-    .build()
-    .map_err(|e| format!("打开截屏选区失败: {e}"))?;
-
-    Ok(())
+    // 通知前端切换到截屏模式
+    let _ = app.emit("overlay-mode", "snap-overlay");
+    show_overlay(app)
 }

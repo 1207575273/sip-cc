@@ -90,6 +90,12 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         }
         "quit" => {
             wal.info("APP", "应用退出");
+            // 显式销毁所有窗口后退出
+            for label in &["overlay", "record-bar", "record-region"] {
+                if let Some(win) = app.get_webview_window(label) {
+                    let _ = win.destroy();
+                }
+            }
             app.exit(0);
         }
         _ => {}

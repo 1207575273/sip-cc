@@ -68,7 +68,12 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 }
                 HotkeyAction::ForceQuit => {
                     wal.info("HOTKEY", "Ctrl+C 双击强制退出");
-                    // 直接进程级退出，确保能杀死
+                    // 销毁所有窗口后强制退出
+                    for label in &["overlay", "record-bar", "record-region"] {
+                        if let Some(win) = app.get_webview_window(label) {
+                            let _ = win.destroy();
+                        }
+                    }
                     std::process::exit(0);
                 }
             }

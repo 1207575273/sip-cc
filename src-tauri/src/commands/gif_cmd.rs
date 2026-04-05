@@ -1,7 +1,7 @@
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::commands::snap_cmd::{close_all_overlays, get_scale_factor, Region};
+use crate::commands::snap_cmd::{close_floating_windows, get_scale_factor, hide_overlay, Region};
 use crate::config::ConfigManager;
 use crate::gif::frame::RecordingSession;
 use crate::output::save;
@@ -23,7 +23,6 @@ pub fn gif_start(
     let phys_w = (region.width as f64 * scale) as u32;
     let phys_h = (region.height as f64 * scale) as u32;
 
-    // 保存逻辑坐标，用于创建指示框窗口
     let log_x = region.x;
     let log_y = region.y;
     let log_w = region.width;
@@ -51,18 +50,18 @@ pub fn gif_start(
     let mut guard = recording.session.lock().map_err(|e| e.to_string())?;
     *guard = Some(session);
 
-    // 独立线程：关闭 overlay → 打开录制控制条 + 区域指示框
+    // 独立线程：隐藏 overlay → 打开录制控制条 + 区域指示框
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        close_all_overlays(&app_clone);
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        hide_overlay(&app_clone);
+        std::thread::sleep(std::time::Duration::from_millis(150));
 
-        // 录制控制条——定位在录制区域右下角外侧
+        // 录制控制条——定位在录制区域右下角
         let bar_w = 300.0;
         let bar_h = 44.0;
-        let bar_x = (log_x as f64 + log_w as f64) - bar_w; // 右对齐
-        let bar_y = log_y as f64 + log_h as f64 + 6.0;     // 区域下方留 6px 间距
+        let bar_x = (log_x as f64 + log_w as f64) - bar_w;
+        let bar_y = log_y as f64 + log_h as f64 + 6.0;
         let _ = WebviewWindowBuilder::new(
             &app_clone, "record-bar",
             WebviewUrl::App("index.html?view=record-bar".into()),
@@ -75,7 +74,7 @@ pub fn gif_start(
         .position(bar_x.max(0.0), bar_y)
         .build();
 
-        // 录制区域指示框（精确覆盖录制区域，鼠标穿透）
+        // 录制区域指示框（鼠标穿透）
         let region_url = format!(
             "index.html?view=record-region&x={}&y={}&w={}&h={}",
             log_x, log_y, log_w, log_h
@@ -92,7 +91,6 @@ pub fn gif_start(
         .inner_size(log_w as f64, log_h as f64)
         .build()
         {
-            // 设置鼠标穿透，不影响用户操作
             let _ = region_win.set_ignore_cursor_events(true);
         }
     });
@@ -125,16 +123,11 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
     let mut session = guard.take().ok_or("没有进行中的录制")?;
     let path = session.stop()?;
 
-    // 独立线程关闭录制控制条和区域指示框
+    // 独立线程关闭录制相关窗口
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        if let Some(win) = app_clone.get_webview_window("record-bar") {
-            let _ = win.close();
-        }
-        if let Some(win) = app_clone.get_webview_window("record-region") {
-            let _ = win.close();
-        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        close_floating_windows(&app_clone);
     });
 
     let mut cb = arboard::Clipboard::new().map_err(|e| format!("剪贴板初始化失败: {e}"))?;
@@ -145,20 +138,19 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
     Ok(path.to_string_lossy().to_string())
 }
 
+/// F3 触发：显示 overlay（GIF 模式）
 pub fn open_gif_overlay(app: &AppHandle) -> Result<(), String> {
-    close_all_overlays(app);
+    let wal = app.state::<WalLogger>();
+    wal.info("GIF", "F3/菜单触发，打开 GIF 选区");
 
-    WebviewWindowBuilder::new(
-        app, "gif-selection",
-        WebviewUrl::App("index.html?view=gif-overlay".into()),
-    )
-    .title("sip-cc gif")
-    .transparent(true)
-    .decorations(false)
-    .always_on_top(true)
-    .fullscreen(true)
-    .build()
-    .map_err(|e| format!("打开 GIF 选区失败: {e}"))?;
+    let _ = app.emit("overlay-mode", "gif-overlay");
+
+    if let Some(win) = app.get_webview_window("overlay") {
+        let _ = win.set_fullscreen(true);
+        let _ = win.set_always_on_top(true);
+        win.show().map_err(|e| format!("显示 overlay 失败: {e}"))?;
+        let _ = win.set_focus();
+    }
 
     Ok(())
 }
