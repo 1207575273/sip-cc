@@ -127,6 +127,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                     let _ = win.destroy();
                 }
             }
+            crate::request_exit();
             app.exit(0);
         }
         _ => {}

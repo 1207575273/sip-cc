@@ -10,10 +10,19 @@ mod wal;
 use commands::gif_cmd::RecordingState;
 use commands::snap_cmd::ScreenBuffer;
 use config::ConfigManager;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use wal::logger::WalLogger;
+
+/// 全局退出标志：true 表示用户主动退出，不拦截
+static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
+
+/// 供 tray.rs 调用：标记为主动退出
+pub fn request_exit() {
+    SHOULD_EXIT.store(true, Ordering::Relaxed);
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -41,7 +50,6 @@ pub fn run() {
             tray::create_tray(app.handle())?;
             hotkey::register::start_hotkey_listener(app.handle().clone());
 
-            // 预创建 overlay 窗口（隐藏），后续 F1/F3 复用
             let _overlay = WebviewWindowBuilder::new(
                 app, "overlay",
                 WebviewUrl::App("index.html?view=snap-overlay".into()),
@@ -55,14 +63,16 @@ pub fn run() {
             .build()?;
 
             wal.info("APP", "overlay 窗口预创建完成");
-
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building sip-cc")
         .run(|_app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                api.prevent_exit();
+                // 只有非主动退出时才拦截（窗口关闭不退出，保持托盘常驻）
+                if !SHOULD_EXIT.load(Ordering::Relaxed) {
+                    api.prevent_exit();
+                }
             }
         });
 }
