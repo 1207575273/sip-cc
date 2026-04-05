@@ -19,7 +19,6 @@ export function mountSnapOverlay(container: HTMLElement): void {
   let selX = 0, selY = 0, selW = 0, selH = 0;
   let rect: Rect = { startX: 0, startY: 0, endX: 0, endY: 0 };
 
-  // 操作按钮容器
   const toolbar = document.createElement("div");
   toolbar.className = "selection-toolbar";
   toolbar.style.display = "none";
@@ -52,7 +51,6 @@ export function mountSnapOverlay(container: HTMLElement): void {
   }
 
   function showToolbar(): void {
-    // 工具栏显示在选区右下角
     const tbX = selX + selW - 130;
     const tbY = selY + selH + 8;
     toolbar.style.left = `${Math.max(0, tbX)}px`;
@@ -60,9 +58,34 @@ export function mountSnapOverlay(container: HTMLElement): void {
     toolbar.style.display = "flex";
   }
 
+  async function closeWindow(): Promise<void> {
+    try {
+      const win = getCurrentWindow();
+      await win.close();
+    } catch (_) {
+      // 关闭失败时强制隐藏
+      document.body.style.display = "none";
+    }
+  }
+
+  async function doSave(): Promise<void> {
+    if (!hasSelection) return;
+    try {
+      // 先隐藏窗口，避免截到遮罩自身
+      const win = getCurrentWindow();
+      await win.hide();
+      // 等一帧让窗口完全隐藏
+      await new Promise(r => setTimeout(r, 100));
+      await takeSnap(selX, selY, selW, selH);
+    } catch (e) {
+      console.error("截屏失败:", e);
+    } finally {
+      await closeWindow();
+    }
+  }
+
   canvas.addEventListener("mousedown", (e: MouseEvent) => {
     if (hasSelection) {
-      // 重新选区：隐藏工具栏，重置状态
       hasSelection = false;
       toolbar.style.display = "none";
     }
@@ -91,31 +114,15 @@ export function mountSnapOverlay(container: HTMLElement): void {
     }
   });
 
-  // 保存按钮
-  toolbar.querySelector("#btn-save")!.addEventListener("click", async () => {
-    if (hasSelection) {
-      await takeSnap(selX, selY, selW, selH);
-    }
-    const win = getCurrentWindow();
-    await win.close();
-  });
+  toolbar.querySelector("#btn-save")!.addEventListener("click", () => doSave());
+  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => closeWindow());
 
-  // 退出按钮
-  toolbar.querySelector("#btn-exit")!.addEventListener("click", async () => {
-    const win = getCurrentWindow();
-    await win.close();
-  });
-
-  // 键盘：Enter 保存，Esc 退出
   document.addEventListener("keydown", async (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      const win = getCurrentWindow();
-      await win.close();
+      await closeWindow();
     }
     if (e.key === "Enter" && hasSelection) {
-      await takeSnap(selX, selY, selW, selH);
-      const win = getCurrentWindow();
-      await win.close();
+      await doSave();
     }
   });
 

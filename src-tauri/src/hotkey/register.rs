@@ -1,4 +1,4 @@
-use rdev::{grab, Event, EventType, Key};
+use rdev::{listen, Event, EventType, Key};
 use std::cell::Cell;
 use std::sync::mpsc;
 use std::thread;
@@ -14,25 +14,22 @@ pub enum HotkeyAction {
     ForceQuit,
 }
 
-/// 启动全局快捷键监听，使用 rdev::grab 强制抢占 F1/F3。
-/// 双击 Ctrl+C（500ms 内按两次）强制退出应用。
+/// 启动全局快捷键监听。
+/// F1 截屏，F3 录制 GIF，双击 Ctrl+C（500ms 内）强制退出。
 pub fn start_hotkey_listener(app: AppHandle) {
     let (tx, rx) = mpsc::channel::<HotkeyAction>();
 
     thread::spawn(move || {
-        // grab 回调是 Fn（非 FnMut），用 Cell 实现内部可变
         let last_ctrl_c: Cell<Option<Instant>> = Cell::new(None);
         let ctrl_held: Cell<bool> = Cell::new(false);
 
-        grab(move |event: Event| -> Option<Event> {
+        listen(move |event: Event| {
             match event.event_type {
                 EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
                     ctrl_held.set(true);
-                    Some(event)
                 }
                 EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
                     ctrl_held.set(false);
-                    Some(event)
                 }
                 EventType::KeyPress(Key::KeyC) if ctrl_held.get() => {
                     let now = Instant::now();
@@ -40,21 +37,18 @@ pub fn start_hotkey_listener(app: AppHandle) {
                         if now.duration_since(last).as_millis() < 500 {
                             let _ = tx.send(HotkeyAction::ForceQuit);
                             last_ctrl_c.set(None);
-                            return Some(event);
+                            return;
                         }
                     }
                     last_ctrl_c.set(Some(now));
-                    Some(event)
                 }
                 EventType::KeyPress(Key::F1) => {
                     let _ = tx.send(HotkeyAction::Snap);
-                    None
                 }
                 EventType::KeyPress(Key::F3) => {
                     let _ = tx.send(HotkeyAction::GifRecord);
-                    None
                 }
-                _ => Some(event),
+                _ => {}
             }
         })
         .expect("快捷键监听启动失败");
@@ -74,7 +68,8 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 }
                 HotkeyAction::ForceQuit => {
                     wal.info("HOTKEY", "Ctrl+C 双击强制退出");
-                    app.exit(0);
+                    // 直接进程级退出，确保能杀死
+                    std::process::exit(0);
                 }
             }
         }

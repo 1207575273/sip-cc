@@ -100,7 +100,19 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("CONFIG", "配置变更 | key=save_dir | new=Desktop");
         }
         "dir_custom" => {
-            // 任务 13 中实现
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                    let config_manager = app_clone.state::<ConfigManager>();
+                    let wal = app_clone.state::<WalLogger>();
+                    let mut config = config_manager.config.lock().unwrap();
+                    config.save_dir = SaveDir::Custom;
+                    config.custom_save_dir = Some(folder.to_string_lossy().to_string());
+                    drop(config);
+                    let _ = config_manager.save();
+                    wal.info("CONFIG", &format!("配置变更 | key=save_dir | new=Custom({})", folder.to_string_lossy()));
+                }
+            });
         }
         "auto_start" => {
             let mut config = config_manager.config.lock().unwrap();
@@ -111,7 +123,11 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("CONFIG", &format!("配置变更 | key=auto_start | new={new_val}"));
         }
         "about" => {
-            // 任务 13 中实现
+            rfd::MessageDialog::new()
+                .set_title("关于 sip-cc")
+                .set_description("sip-cc v0.1.0\n轻量截屏 + GIF 录制工具")
+                .set_level(rfd::MessageLevel::Info)
+                .show();
         }
         "quit" => {
             wal.info("APP", "应用退出");

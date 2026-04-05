@@ -58,6 +58,30 @@ export function mountGifOverlay(container: HTMLElement): void {
     toolbar.style.display = "flex";
   }
 
+  async function closeWindow(): Promise<void> {
+    try {
+      const win = getCurrentWindow();
+      await win.close();
+    } catch (_) {
+      document.body.style.display = "none";
+    }
+  }
+
+  async function doRecord(): Promise<void> {
+    if (!hasSelection) return;
+    try {
+      // 先隐藏遮罩窗口，避免录制到遮罩
+      const win = getCurrentWindow();
+      await win.hide();
+      await new Promise(r => setTimeout(r, 100));
+      await startGifRecording(selX, selY, selW, selH);
+    } catch (e) {
+      console.error("启动录制失败:", e);
+    } finally {
+      await closeWindow();
+    }
+  }
+
   canvas.addEventListener("mousedown", (e: MouseEvent) => {
     if (hasSelection) {
       hasSelection = false;
@@ -88,28 +112,15 @@ export function mountGifOverlay(container: HTMLElement): void {
     }
   });
 
-  toolbar.querySelector("#btn-record")!.addEventListener("click", async () => {
-    if (hasSelection) {
-      await startGifRecording(selX, selY, selW, selH);
-    }
-    const win = getCurrentWindow();
-    await win.close();
-  });
-
-  toolbar.querySelector("#btn-exit")!.addEventListener("click", async () => {
-    const win = getCurrentWindow();
-    await win.close();
-  });
+  toolbar.querySelector("#btn-record")!.addEventListener("click", () => doRecord());
+  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => closeWindow());
 
   document.addEventListener("keydown", async (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      const win = getCurrentWindow();
-      await win.close();
+      await closeWindow();
     }
     if (e.key === "Enter" && hasSelection) {
-      await startGifRecording(selX, selY, selW, selH);
-      const win = getCurrentWindow();
-      await win.close();
+      await doRecord();
     }
   });
 
