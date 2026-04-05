@@ -16,14 +16,30 @@ if (view === "record-bar") {
   setupOverlay();
 }
 
+/** 等待窗口尺寸就绪（hide→show 后需要等一下） */
+function waitForWindowReady(): Promise<void> {
+  return new Promise((resolve) => {
+    function check() {
+      if (window.innerWidth > 100 && window.innerHeight > 100) {
+        resolve();
+      } else {
+        requestAnimationFrame(check);
+      }
+    }
+    // 给一帧的时间让窗口完全展开
+    requestAnimationFrame(check);
+  });
+}
+
 function setupOverlay(): void {
   let cleanup: (() => void) | null = null;
 
-  function switchMode(mode: string): void {
-    // 先清理旧的事件监听器
+  async function switchMode(mode: string): Promise<void> {
     if (cleanup) { cleanup(); cleanup = null; }
-    // 清空 DOM
     container.innerHTML = "";
+
+    // 等窗口完全展开再挂载（解决第二次打开 canvas 尺寸为 0 的问题）
+    await waitForWindowReady();
 
     if (mode === "snap-overlay") {
       cleanup = mountSnapOverlay(container);
@@ -32,7 +48,6 @@ function setupOverlay(): void {
     }
   }
 
-  // 监听 Rust 端发来的模式切换事件
   listen("overlay-mode", (event) => {
     switchMode(event.payload as string);
   });

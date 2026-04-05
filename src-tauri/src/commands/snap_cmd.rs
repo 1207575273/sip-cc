@@ -128,7 +128,10 @@ pub fn open_snap_overlay(app: &AppHandle) -> Result<(), String> {
 
     wal.info("SNAP", "全屏预截完成，显示选区遮罩");
 
-    // 通知前端切换到截屏模式
+    // 先显示窗口，再通知前端切换模式（确保窗口尺寸就绪）
+    show_overlay(app)?;
+    // 稍等窗口展开
+    std::thread::sleep(std::time::Duration::from_millis(50));
     let _ = app.emit("overlay-mode", "snap-overlay");
-    show_overlay(app)
+    Ok(())
 }
