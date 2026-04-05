@@ -1,8 +1,24 @@
 import { startGifRecording } from "../bridge/gifBridge";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 
 interface Rect {
   startX: number; startY: number; endX: number; endY: number;
+}
+
+async function forceCloseOverlay(): Promise<void> {
+  try {
+    await invoke("close_overlay");
+  } catch (_) {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      await win.setAlwaysOnTop(false);
+      await win.setFullscreen(false);
+      await win.close();
+    } catch (__) {
+      document.body.style.display = "none";
+    }
+  }
 }
 
 export function mountGifOverlay(container: HTMLElement): void {
@@ -58,27 +74,14 @@ export function mountGifOverlay(container: HTMLElement): void {
     toolbar.style.display = "flex";
   }
 
-  async function closeWindow(): Promise<void> {
-    try {
-      const win = getCurrentWindow();
-      await win.close();
-    } catch (_) {
-      document.body.style.display = "none";
-    }
-  }
-
   async function doRecord(): Promise<void> {
     if (!hasSelection) return;
     try {
-      // 先隐藏遮罩窗口，避免录制到遮罩
-      const win = getCurrentWindow();
-      await win.hide();
-      await new Promise(r => setTimeout(r, 100));
+      // gif_start 命令内部会先关闭 overlay 再开始录制
       await startGifRecording(selX, selY, selW, selH);
     } catch (e) {
       console.error("启动录制失败:", e);
-    } finally {
-      await closeWindow();
+      await forceCloseOverlay();
     }
   }
 
@@ -113,15 +116,11 @@ export function mountGifOverlay(container: HTMLElement): void {
   });
 
   toolbar.querySelector("#btn-record")!.addEventListener("click", () => doRecord());
-  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => closeWindow());
+  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => forceCloseOverlay());
 
   document.addEventListener("keydown", async (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      await closeWindow();
-    }
-    if (e.key === "Enter" && hasSelection) {
-      await doRecord();
-    }
+    if (e.key === "Escape") await forceCloseOverlay();
+    if (e.key === "Enter" && hasSelection) await doRecord();
   });
 
   canvas.setAttribute("tabindex", "0");

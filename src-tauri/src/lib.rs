@@ -23,6 +23,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::snap_cmd::snap_region,
+            commands::snap_cmd::close_overlay,
             commands::gif_cmd::gif_start,
             commands::gif_cmd::gif_pause,
             commands::gif_cmd::gif_resume,

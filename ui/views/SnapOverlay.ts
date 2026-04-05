@@ -1,8 +1,26 @@
 import { takeSnap } from "../bridge/snapBridge";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 
 interface Rect {
   startX: number; startY: number; endX: number; endY: number;
+}
+
+/** 通过 Rust 端强制关闭所有 overlay 窗口 */
+async function forceCloseOverlay(): Promise<void> {
+  try {
+    await invoke("close_overlay");
+  } catch (_) {
+    // 如果命令也失败，尝试前端方式
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      await win.setAlwaysOnTop(false);
+      await win.setFullscreen(false);
+      await win.close();
+    } catch (__) {
+      document.body.style.display = "none";
+    }
+  }
 }
 
 export function mountSnapOverlay(container: HTMLElement): void {
@@ -58,29 +76,15 @@ export function mountSnapOverlay(container: HTMLElement): void {
     toolbar.style.display = "flex";
   }
 
-  async function closeWindow(): Promise<void> {
-    try {
-      const win = getCurrentWindow();
-      await win.close();
-    } catch (_) {
-      // 关闭失败时强制隐藏
-      document.body.style.display = "none";
-    }
-  }
-
+  // 保存：调用 Rust snap_region（Rust 端会先关窗口再截屏）
   async function doSave(): Promise<void> {
     if (!hasSelection) return;
     try {
-      // 先隐藏窗口，避免截到遮罩自身
-      const win = getCurrentWindow();
-      await win.hide();
-      // 等一帧让窗口完全隐藏
-      await new Promise(r => setTimeout(r, 100));
       await takeSnap(selX, selY, selW, selH);
     } catch (e) {
       console.error("截屏失败:", e);
-    } finally {
-      await closeWindow();
+      // 即使失败也要关窗口
+      await forceCloseOverlay();
     }
   }
 
@@ -115,15 +119,11 @@ export function mountSnapOverlay(container: HTMLElement): void {
   });
 
   toolbar.querySelector("#btn-save")!.addEventListener("click", () => doSave());
-  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => closeWindow());
+  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => forceCloseOverlay());
 
   document.addEventListener("keydown", async (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      await closeWindow();
-    }
-    if (e.key === "Enter" && hasSelection) {
-      await doSave();
-    }
+    if (e.key === "Escape") await forceCloseOverlay();
+    if (e.key === "Enter" && hasSelection) await doSave();
   });
 
   canvas.setAttribute("tabindex", "0");
