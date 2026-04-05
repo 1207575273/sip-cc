@@ -12,10 +12,13 @@ pub enum SaveDir {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// 保存目录类型：desktop / custom
     pub save_dir: SaveDir,
+    /// 自定义保存目录路径（save_dir=custom 时使用）
     pub custom_save_dir: Option<String>,
-    pub auto_start: bool,
+    /// GIF 录制帧率
     pub gif_fps: u16,
+    /// GIF 最大录制时长（秒）
     pub gif_max_duration_secs: u64,
 }
 
@@ -24,7 +27,6 @@ impl Default for AppConfig {
         Self {
             save_dir: SaveDir::Desktop,
             custom_save_dir: None,
-            auto_start: false,
             gif_fps: 10,
             gif_max_duration_secs: 180,
         }
@@ -40,10 +42,15 @@ impl ConfigManager {
     pub fn new() -> Self {
         let config_path = Self::config_file_path();
         let config = Self::load_from_file(&config_path);
-        Self {
+
+        let manager = Self {
             config: Mutex::new(config),
             config_path,
-        }
+        };
+
+        // 首次启动：如果配置文件不存在，自动初始化写入默认配置
+        manager.ensure_config_file();
+        manager
     }
 
     pub fn base_dir() -> PathBuf {
@@ -60,6 +67,13 @@ impl ConfigManager {
         match fs::read_to_string(path) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => AppConfig::default(),
+        }
+    }
+
+    /// 确保配置文件存在，不存在则写入默认配置
+    fn ensure_config_file(&self) {
+        if !self.config_path.exists() {
+            let _ = self.save();
         }
     }
 

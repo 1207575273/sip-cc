@@ -4766,6 +4766,7 @@ dependencies = [
  "dirs",
  "gif",
  "image",
+ "open",
  "rdev",
  "rfd",
  "serde",
