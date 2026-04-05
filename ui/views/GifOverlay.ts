@@ -5,23 +5,11 @@ interface Rect {
   startX: number; startY: number; endX: number; endY: number;
 }
 
-async function forceCloseOverlay(): Promise<void> {
-  try {
-    await invoke("close_overlay");
-  } catch (_) {
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const win = getCurrentWindow();
-      await win.setAlwaysOnTop(false);
-      await win.setFullscreen(false);
-      await win.close();
-    } catch (__) {
-      document.body.style.display = "none";
-    }
-  }
+async function hideOverlay(): Promise<void> {
+  try { await invoke("close_overlay"); } catch (_) {}
 }
 
-export function mountGifOverlay(container: HTMLElement): void {
+export function mountGifOverlay(container: HTMLElement): () => void {
   const canvas = document.createElement("canvas");
   canvas.id = "gif-canvas";
   container.appendChild(canvas);
@@ -59,7 +47,6 @@ export function mountGifOverlay(container: HTMLElement): void {
       ctx.strokeStyle = "#ff4444";
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, w, h);
-
       ctx.fillStyle = "#ff4444";
       ctx.font = "14px monospace";
       ctx.fillText(`${w} × ${h}`, x, y > 20 ? y - 6 : y + h + 16);
@@ -76,54 +63,53 @@ export function mountGifOverlay(container: HTMLElement): void {
 
   async function doRecord(): Promise<void> {
     if (!hasSelection) return;
-    try {
-      // gif_start 命令内部会先关闭 overlay 再开始录制
-      await startGifRecording(selX, selY, selW, selH);
-    } catch (e) {
+    try { await startGifRecording(selX, selY, selW, selH); } catch (e) {
       console.error("启动录制失败:", e);
-      await forceCloseOverlay();
+      await hideOverlay();
     }
   }
 
-  canvas.addEventListener("mousedown", (e: MouseEvent) => {
-    if (hasSelection) {
-      hasSelection = false;
-      toolbar.style.display = "none";
-    }
+  const onMouseDown = (e: MouseEvent) => {
+    if (hasSelection) { hasSelection = false; toolbar.style.display = "none"; }
     isDragging = true;
     rect.startX = e.clientX; rect.startY = e.clientY;
     rect.endX = e.clientX; rect.endY = e.clientY;
-  });
-
-  canvas.addEventListener("mousemove", (e: MouseEvent) => {
+  };
+  const onMouseMove = (e: MouseEvent) => {
     if (!isDragging) return;
     rect.endX = e.clientX; rect.endY = e.clientY;
     drawOverlay();
-  });
-
-  canvas.addEventListener("mouseup", () => {
+  };
+  const onMouseUp = () => {
     isDragging = false;
     selX = Math.min(rect.startX, rect.endX);
     selY = Math.min(rect.startY, rect.endY);
     selW = Math.abs(rect.endX - rect.startX);
     selH = Math.abs(rect.endY - rect.startY);
+    if (selW > 5 && selH > 5) { hasSelection = true; drawOverlay(); showToolbar(); }
+  };
+  const onKeyDown = async (e: KeyboardEvent) => {
+    if (e.key === "Escape") await hideOverlay();
+    if (e.key === "Enter" && hasSelection) await doRecord();
+  };
 
-    if (selW > 5 && selH > 5) {
-      hasSelection = true;
-      drawOverlay();
-      showToolbar();
-    }
-  });
+  canvas.addEventListener("mousedown", onMouseDown);
+  canvas.addEventListener("mousemove", onMouseMove);
+  canvas.addEventListener("mouseup", onMouseUp);
+  document.addEventListener("keydown", onKeyDown);
 
   toolbar.querySelector("#btn-record")!.addEventListener("click", () => doRecord());
-  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => forceCloseOverlay());
-
-  document.addEventListener("keydown", async (e: KeyboardEvent) => {
-    if (e.key === "Escape") await forceCloseOverlay();
-    if (e.key === "Enter" && hasSelection) await doRecord();
-  });
+  toolbar.querySelector("#btn-exit")!.addEventListener("click", () => hideOverlay());
 
   canvas.setAttribute("tabindex", "0");
   canvas.focus();
   drawOverlay();
+
+  // cleanup：切换模式时移除所有事件监听
+  return () => {
+    canvas.removeEventListener("mousedown", onMouseDown);
+    canvas.removeEventListener("mousemove", onMouseMove);
+    canvas.removeEventListener("mouseup", onMouseUp);
+    document.removeEventListener("keydown", onKeyDown);
+  };
 }
