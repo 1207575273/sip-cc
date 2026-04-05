@@ -36,6 +36,12 @@ pub fn run() {
             hotkey::register::start_hotkey_listener(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running sip-cc");
+        .build(tauri::generate_context!())
+        .expect("error while building sip-cc")
+        .run(|_app, event| {
+            // 所有窗口关闭时不退出应用，保持托盘常驻
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                api.prevent_exit();
+            }
+        });
 }
