@@ -1,4 +1,4 @@
-use rdev::{listen, Event, EventType, Key};
+use rdev::{grab, Event, EventType, Key};
 use std::sync::mpsc;
 use std::thread;
 use tauri::{AppHandle, Manager};
@@ -11,22 +11,24 @@ pub enum HotkeyAction {
     GifRecord,
 }
 
-/// 启动全局快捷键监听，使用 rdev::listen（非阻塞，在独立线程中运行）。
-/// 注意：listen 不会拦截按键，只是监听；如需拦截需启用 unstable_grab feature。
+/// 启动全局快捷键监听，使用 rdev::grab 强制抢占 F1/F3。
+/// 被抢占的按键不会传递给其他程序。
 pub fn start_hotkey_listener(app: AppHandle) {
     let (tx, rx) = mpsc::channel::<HotkeyAction>();
 
-    // 监听线程：捕获全局键盘事件
+    // grab 线程：拦截 F1/F3，吞掉事件不传递给其他程序
     thread::spawn(move || {
-        listen(move |event: Event| {
+        grab(move |event: Event| -> Option<Event> {
             match event.event_type {
                 EventType::KeyPress(Key::F1) => {
                     let _ = tx.send(HotkeyAction::Snap);
+                    None // 强制抢占：吞掉事件
                 }
                 EventType::KeyPress(Key::F3) => {
                     let _ = tx.send(HotkeyAction::GifRecord);
+                    None
                 }
-                _ => {}
+                _ => Some(event), // 其他键正常传递
             }
         })
         .expect("快捷键监听启动失败");
