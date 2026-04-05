@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 use crate::config::ConfigManager;
 
+#[allow(dead_code)]
 pub enum Level {
     Info,
     Error,
@@ -64,6 +65,7 @@ impl WalLogger {
         self.log(Level::Info, tag, message);
     }
 
+    #[allow(dead_code)]
     pub fn error(&self, tag: &str, message: &str) {
         self.log(Level::Error, tag, message);
     }

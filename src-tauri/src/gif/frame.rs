@@ -39,12 +39,8 @@ impl RecordingSession {
 
             loop {
                 let current_state = state_clone.load(Ordering::Relaxed);
-                if current_state == STATE_STOPPED {
-                    break;
-                }
-                if start_time.elapsed() >= max_duration {
-                    break;
-                }
+                if current_state == STATE_STOPPED { break; }
+                if start_time.elapsed() >= max_duration { break; }
 
                 if current_state == STATE_PAUSED {
                     thread::sleep(Duration::from_millis(50));
@@ -52,9 +48,33 @@ impl RecordingSession {
                 }
 
                 let frame_start = Instant::now();
-                let screen = capture::capture_primary_screen()?;
-                let cropped = crop::crop_rgba(&screen.image, x, y, width, height)?;
-                encoder.add_frame(cropped.as_raw())?;
+
+                // 每帧截屏 + 裁剪，捕获错误而不是 panic
+                match capture::capture_primary_screen() {
+                    Ok(screen) => {
+                        match crop::crop_rgba(&screen.image, x, y, width, height) {
+                            Ok(cropped) => {
+                                if let Err(e) = encoder.add_frame(
+                                    cropped.as_raw(),
+                                    cropped.width() as u16,
+                                    cropped.height() as u16,
+                                ) {
+                                    eprintln!("GIF 写入帧失败: {e}");
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("GIF 裁剪失败: {e}");
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("GIF 截屏失败: {e}");
+                        // 截屏偶尔失败可以跳过这一帧
+                        continue;
+                    }
+                }
 
                 let elapsed = frame_start.elapsed();
                 if elapsed < frame_interval {
@@ -85,6 +105,6 @@ impl RecordingSession {
             .take()
             .ok_or_else(|| "录制已停止".to_string())?
             .join()
-            .map_err(|_| "录制线程崩溃".to_string())?
+            .map_err(|e| format!("录制线程崩溃: {:?}", e))?
     }
 }

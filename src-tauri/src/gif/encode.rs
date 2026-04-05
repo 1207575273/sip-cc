@@ -4,8 +4,6 @@ use std::path::PathBuf;
 
 pub struct GifEncoder {
     encoder: Encoder<File>,
-    width: u16,
-    height: u16,
     frame_delay: u16,
 }
 
@@ -18,19 +16,13 @@ impl GifEncoder {
             .set_repeat(Repeat::Infinite)
             .map_err(|e| format!("设置循环播放失败: {e}"))?;
 
-        // GIF delay 单位是 1/100 秒
         let frame_delay = 100 / fps;
-        Ok(Self {
-            encoder,
-            width,
-            height,
-            frame_delay,
-        })
+        Ok(Self { encoder, frame_delay })
     }
 
-    pub fn add_frame(&mut self, rgba_pixels: &[u8]) -> Result<(), String> {
+    pub fn add_frame(&mut self, rgba_pixels: &[u8], actual_width: u16, actual_height: u16) -> Result<(), String> {
         let mut pixels = rgba_pixels.to_vec();
-        let mut frame = Frame::from_rgba_speed(self.width, self.height, &mut pixels, 10);
+        let mut frame = Frame::from_rgba_speed(actual_width, actual_height, &mut pixels, 10);
         frame.delay = self.frame_delay;
         self.encoder
             .write_frame(&frame)
