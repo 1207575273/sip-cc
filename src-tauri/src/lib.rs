@@ -1,4 +1,7 @@
 mod config;
+mod output;
+mod snap;
+mod tray;
 mod wal;
 
 use config::ConfigManager;
@@ -13,6 +16,7 @@ pub fn run() {
         .setup(|app| {
             let wal = app.state::<WalLogger>();
             wal.info("APP", "应用启动");
+            tray::create_tray(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())
