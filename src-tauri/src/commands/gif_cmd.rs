@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::commands::snap_cmd::{close_all_overlays, Region};
+use crate::commands::snap_cmd::{close_all_overlays, get_scale_factor, Region};
 use crate::config::{ConfigManager, SelectionMode};
 use crate::gif::frame::RecordingSession;
 use crate::output::save;
@@ -16,11 +16,20 @@ pub fn gif_start(
     app: AppHandle, region: Region, recording: State<'_, RecordingState>,
 ) -> Result<(), String> {
     let wal = app.state::<WalLogger>();
+
+    // DPI 缩放：逻辑像素 → 物理像素
+    let scale = get_scale_factor();
+    let phys_x = (region.x as f64 * scale) as u32;
+    let phys_y = (region.y as f64 * scale) as u32;
+    let phys_w = (region.width as f64 * scale) as u32;
+    let phys_h = (region.height as f64 * scale) as u32;
+
     wal.info("GIF", &format!(
-        "开始录制 | region={},{},{},{}", region.x, region.y, region.width, region.height
+        "开始录制 | logical={},{},{},{} | physical={},{},{},{} | scale={}",
+        region.x, region.y, region.width, region.height,
+        phys_x, phys_y, phys_w, phys_h, scale
     ));
 
-    // 先关闭选区 overlay，释放全屏控制权
     close_all_overlays(&app);
     std::thread::sleep(std::time::Duration::from_millis(200));
 
@@ -33,7 +42,7 @@ pub fn gif_start(
     let output_path = save::generate_gif_path(&save_dir);
 
     let session = RecordingSession::start(
-        region.x as u32, region.y as u32, region.width, region.height,
+        phys_x, phys_y, phys_w, phys_h,
         fps, max_duration, output_path,
     )?;
 
