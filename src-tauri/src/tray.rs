@@ -70,11 +70,11 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "snap" => {
             wal.info("TRAY", "点击截屏菜单");
-            // 任务 8 中实现
+            let _ = crate::commands::snap_cmd::open_snap_overlay(app);
         }
         "gif" => {
             wal.info("TRAY", "点击录制GIF菜单");
-            // 任务 10 中实现
+            let _ = crate::commands::gif_cmd::open_gif_overlay(app);
         }
         "mode_overlay" => {
             let mut config = config_manager.config.lock().unwrap();
