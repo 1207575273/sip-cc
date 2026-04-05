@@ -62,10 +62,14 @@ pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
         phys_x, phys_y, phys_w, phys_h, scale
     ));
 
-    // 先关闭 overlay
-    close_all_overlays(&app);
+    // 异步关闭 overlay（不阻塞命令返回，避免摧毁调用者环境）
+    let app_for_close = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        close_all_overlays(&app_for_close);
+    });
 
-    // 从预截的全屏图中裁剪
+    // 从预截的全屏图中裁剪（不需要等窗口关闭）
     let buffer = app.state::<ScreenBuffer>();
     let guard = buffer.image.lock().map_err(|e| e.to_string())?;
     let full_image = guard.as_ref().ok_or("没有预截的屏幕图像")?;

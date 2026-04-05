@@ -11,13 +11,13 @@ pub struct RecordingState {
     pub session: Mutex<Option<RecordingSession>>,
 }
 
+/// GIF 录制启动：前端调用后立即返回，实际工作在后台线程完成
 #[tauri::command]
 pub fn gif_start(
     app: AppHandle, region: Region, recording: State<'_, RecordingState>,
 ) -> Result<(), String> {
     let wal = app.state::<WalLogger>();
 
-    // DPI 缩放：逻辑像素 → 物理像素
     let scale = get_scale_factor();
     let phys_x = (region.x as f64 * scale) as u32;
     let phys_y = (region.y as f64 * scale) as u32;
@@ -30,9 +30,6 @@ pub fn gif_start(
         phys_x, phys_y, phys_w, phys_h, scale
     ));
 
-    close_all_overlays(&app);
-    std::thread::sleep(std::time::Duration::from_millis(200));
-
     let config_manager = app.state::<ConfigManager>();
     let (fps, max_duration) = {
         let config = config_manager.config.lock().unwrap();
@@ -41,6 +38,7 @@ pub fn gif_start(
     let save_dir = config_manager.get_save_directory();
     let output_path = save::generate_gif_path(&save_dir);
 
+    // 先启动录制会话（在后台线程截屏）
     let session = RecordingSession::start(
         phys_x, phys_y, phys_w, phys_h,
         fps, max_duration, output_path,
@@ -49,19 +47,28 @@ pub fn gif_start(
     let mut guard = recording.session.lock().map_err(|e| e.to_string())?;
     *guard = Some(session);
 
-    // 打开录制控制条（小窗口，非全屏）
-    WebviewWindowBuilder::new(
-        &app, "record-bar",
-        WebviewUrl::App("index.html?view=record-bar".into()),
-    )
-    .title("sip-cc recording")
-    .transparent(true)
-    .decorations(false)
-    .always_on_top(true)
-    .inner_size(320.0, 48.0)
-    .center()
-    .build()
-    .map_err(|e| format!("打开录制控制条失败: {e}"))?;
+    // 用独立线程关闭 overlay 并打开 RecordBar
+    // 不能在当前命令里关闭调用者窗口（会摧毁命令执行环境）
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        // 等命令返回给前端后再关窗口
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        close_all_overlays(&app_clone);
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let _ = WebviewWindowBuilder::new(
+            &app_clone, "record-bar",
+            WebviewUrl::App("index.html?view=record-bar".into()),
+        )
+        .title("sip-cc recording")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .inner_size(320.0, 48.0)
+        .center()
+        .build();
+    });
 
     Ok(())
 }
@@ -91,10 +98,14 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
     let mut session = guard.take().ok_or("没有进行中的录制")?;
     let path = session.stop()?;
 
-    // 关闭录制控制条
-    if let Some(win) = app.get_webview_window("record-bar") {
-        let _ = win.close();
-    }
+    // 关闭录制控制条（同样在独立线程，避免卡死）
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Some(win) = app_clone.get_webview_window("record-bar") {
+            let _ = win.close();
+        }
+    });
 
     let mut cb = arboard::Clipboard::new().map_err(|e| format!("剪贴板初始化失败: {e}"))?;
     cb.set_text(path.to_string_lossy().to_string())
