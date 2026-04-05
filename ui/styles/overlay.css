@@ -64,7 +64,7 @@ html, body {
 /* ========== 录制控制条 ========== */
 
 #record-bar {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 10px;
   height: 36px;
@@ -75,11 +75,11 @@ html, body {
   color: #fff;
   font-size: 13px;
   position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 4px;
+  right: 4px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   -webkit-app-region: drag;
+  white-space: nowrap;
 }
 
 .record-indicator {

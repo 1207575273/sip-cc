@@ -58,7 +58,11 @@ pub fn gif_start(
         close_all_overlays(&app_clone);
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        // 录制控制条（顶部居中小窗口）
+        // 录制控制条——定位在录制区域右下角外侧
+        let bar_w = 300.0;
+        let bar_h = 44.0;
+        let bar_x = (log_x as f64 + log_w as f64) - bar_w; // 右对齐
+        let bar_y = log_y as f64 + log_h as f64 + 6.0;     // 区域下方留 6px 间距
         let _ = WebviewWindowBuilder::new(
             &app_clone, "record-bar",
             WebviewUrl::App("index.html?view=record-bar".into()),
@@ -67,8 +71,8 @@ pub fn gif_start(
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
-        .inner_size(280.0, 36.0)
-        .center()
+        .inner_size(bar_w, bar_h)
+        .position(bar_x.max(0.0), bar_y)
         .build();
 
         // 录制区域指示框（精确覆盖录制区域，鼠标穿透）
