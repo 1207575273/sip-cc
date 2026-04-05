@@ -11,7 +11,6 @@ pub struct RecordingState {
     pub session: Mutex<Option<RecordingSession>>,
 }
 
-/// GIF 录制启动：前端调用后立即返回，实际工作在后台线程完成
 #[tauri::command]
 pub fn gif_start(
     app: AppHandle, region: Region, recording: State<'_, RecordingState>,
@@ -23,6 +22,12 @@ pub fn gif_start(
     let phys_y = (region.y as f64 * scale) as u32;
     let phys_w = (region.width as f64 * scale) as u32;
     let phys_h = (region.height as f64 * scale) as u32;
+
+    // 保存逻辑坐标，用于创建指示框窗口
+    let log_x = region.x;
+    let log_y = region.y;
+    let log_w = region.width;
+    let log_h = region.height;
 
     wal.info("GIF", &format!(
         "开始录制 | logical={},{},{},{} | physical={},{},{},{} | scale={}",
@@ -38,7 +43,6 @@ pub fn gif_start(
     let save_dir = config_manager.get_save_directory();
     let output_path = save::generate_gif_path(&save_dir);
 
-    // 先启动录制会话（在后台线程截屏）
     let session = RecordingSession::start(
         phys_x, phys_y, phys_w, phys_h,
         fps, max_duration, output_path,
@@ -47,16 +51,14 @@ pub fn gif_start(
     let mut guard = recording.session.lock().map_err(|e| e.to_string())?;
     *guard = Some(session);
 
-    // 用独立线程关闭 overlay 并打开 RecordBar
-    // 不能在当前命令里关闭调用者窗口（会摧毁命令执行环境）
+    // 独立线程：关闭 overlay → 打开录制控制条 + 区域指示框
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        // 等命令返回给前端后再关窗口
         std::thread::sleep(std::time::Duration::from_millis(100));
         close_all_overlays(&app_clone);
-
         std::thread::sleep(std::time::Duration::from_millis(200));
 
+        // 录制控制条（顶部居中小窗口）
         let _ = WebviewWindowBuilder::new(
             &app_clone, "record-bar",
             WebviewUrl::App("index.html?view=record-bar".into()),
@@ -65,9 +67,30 @@ pub fn gif_start(
         .transparent(true)
         .decorations(false)
         .always_on_top(true)
-        .inner_size(320.0, 48.0)
+        .inner_size(280.0, 36.0)
         .center()
         .build();
+
+        // 录制区域指示框（精确覆盖录制区域，鼠标穿透）
+        let region_url = format!(
+            "index.html?view=record-region&x={}&y={}&w={}&h={}",
+            log_x, log_y, log_w, log_h
+        );
+        if let Ok(region_win) = WebviewWindowBuilder::new(
+            &app_clone, "record-region",
+            WebviewUrl::App(region_url.into()),
+        )
+        .title("sip-cc region")
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .position(log_x as f64, log_y as f64)
+        .inner_size(log_w as f64, log_h as f64)
+        .build()
+        {
+            // 设置鼠标穿透，不影响用户操作
+            let _ = region_win.set_ignore_cursor_events(true);
+        }
     });
 
     Ok(())
@@ -98,11 +121,14 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
     let mut session = guard.take().ok_or("没有进行中的录制")?;
     let path = session.stop()?;
 
-    // 关闭录制控制条（同样在独立线程，避免卡死）
+    // 独立线程关闭录制控制条和区域指示框
     let app_clone = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(100));
         if let Some(win) = app_clone.get_webview_window("record-bar") {
+            let _ = win.close();
+        }
+        if let Some(win) = app_clone.get_webview_window("record-region") {
             let _ = win.close();
         }
     });

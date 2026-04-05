@@ -1,6 +1,7 @@
 import { mountSnapOverlay } from "./views/SnapOverlay";
 import { mountGifOverlay } from "./views/GifOverlay";
 import { mountRecordBar } from "./views/RecordBar";
+import { mountRecordRegion } from "./views/RecordRegion";
 
 const container = document.getElementById("app")!;
 const params = new URLSearchParams(window.location.search);
@@ -15,6 +16,9 @@ switch (view) {
     break;
   case "record-bar":
     mountRecordBar(container);
+    break;
+  case "record-region":
+    mountRecordRegion(container);
     break;
   default:
     break;

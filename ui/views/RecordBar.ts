@@ -7,8 +7,9 @@ export function mountRecordBar(container: HTMLElement): void {
     <span class="record-indicator">\u25CF</span>
     <span class="record-status">录制中</span>
     <span class="record-timer">00:00</span>
-    <button class="record-btn" id="btn-pause">\u23F8 暂停</button>
-    <button class="record-btn record-btn-stop" id="btn-stop">\u23F9 停止</button>
+    <span class="record-divider"></span>
+    <button class="record-btn" id="btn-pause">暂停</button>
+    <button class="record-btn record-btn-stop" id="btn-stop">停止</button>
   `;
   container.appendChild(bar);
 
@@ -34,13 +35,13 @@ export function mountRecordBar(container: HTMLElement): void {
     if (isPaused) {
       await resumeGif();
       isPaused = false;
-      pauseBtn.textContent = "\u23F8 暂停";
+      pauseBtn.textContent = "暂停";
       statusEl.textContent = "录制中";
       indicatorEl.style.color = "#ff4444";
     } else {
       await pauseGif();
       isPaused = true;
-      pauseBtn.textContent = "\u25B6 继续";
+      pauseBtn.textContent = "继续";
       statusEl.textContent = "已暂停";
       indicatorEl.style.color = "#ffaa00";
     }
@@ -49,9 +50,7 @@ export function mountRecordBar(container: HTMLElement): void {
   stopBtn.addEventListener("click", async () => {
     clearInterval(timerHandle);
     await stopGif();
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const win = getCurrentWindow();
-    await win.close();
+    // gif_stop 会在独立线程关闭 record-bar 和 record-region 窗口
   });
 
   document.addEventListener("keydown", async (e: KeyboardEvent) => {

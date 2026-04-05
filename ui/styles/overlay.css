@@ -4,7 +4,10 @@ html, body {
   width: 100%; height: 100%;
   overflow: hidden; background: transparent;
   user-select: none;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
+
+/* ========== 截屏/GIF 选区遮罩 ========== */
 
 #snap-canvas, #gif-canvas {
   position: fixed; top: 0; left: 0;
@@ -12,90 +15,164 @@ html, body {
   cursor: crosshair;
 }
 
-/* 选区工具栏（保存/退出按钮） */
+/* ========== 选区工具栏（保存/退出） ========== */
+
 .selection-toolbar {
   position: fixed;
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(30, 30, 30, 0.9);
+  border-radius: 6px;
   z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
 .toolbar-btn {
-  padding: 4px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 14px;
   border: none;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   color: #fff;
+  transition: background 0.15s;
+  white-space: nowrap;
 }
 
 .toolbar-btn-save {
-  background: #00aaff;
+  background: #2080e0;
 }
 .toolbar-btn-save:hover {
-  background: #0090dd;
+  background: #1a6cc0;
 }
 
 .toolbar-btn-exit {
-  background: #666;
+  background: transparent;
+  color: #aaa;
 }
 .toolbar-btn-exit:hover {
-  background: #888;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
 }
 
-#drag-region {
-  position: fixed;
-  border: 2px solid #00aaff;
-  background: transparent;
-  cursor: move;
-  min-width: 50px; min-height: 50px;
-}
-
-.drag-info {
-  position: absolute; top: -24px; left: 0;
-  color: #00aaff; font: 14px monospace; white-space: nowrap;
-}
-
-.drag-confirm {
-  position: absolute; bottom: -28px; right: 0;
-  color: #fff; background: #00aaff;
-  padding: 2px 8px; font-size: 12px; border-radius: 3px;
-}
-
-.drag-handle {
-  position: absolute; width: 8px; height: 8px; background: #00aaff;
-}
-.drag-handle-tl { top: -4px; left: -4px; cursor: nw-resize; }
-.drag-handle-tr { top: -4px; right: -4px; cursor: ne-resize; }
-.drag-handle-bl { bottom: -4px; left: -4px; cursor: sw-resize; }
-.drag-handle-br { bottom: -4px; right: -4px; cursor: se-resize; }
+/* ========== 录制控制条 ========== */
 
 #record-bar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 16px;
-  background: rgba(30, 30, 30, 0.95);
-  border-radius: 8px; color: #fff; font-size: 14px;
-  position: fixed; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 14px;
+  background: rgba(24, 24, 24, 0.95);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  color: #fff;
+  font-size: 13px;
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   -webkit-app-region: drag;
 }
 
 .record-indicator {
-  color: #ff4444; font-size: 18px;
+  color: #ff4444;
+  font-size: 14px;
   animation: blink 1s infinite;
+  line-height: 1;
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  50% { opacity: 0.2; }
 }
 
-.record-timer { font-family: monospace; font-size: 16px; min-width: 50px; }
+.record-status {
+  font-size: 12px;
+  color: #ccc;
+  min-width: 36px;
+}
+
+.record-timer {
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 13px;
+  min-width: 40px;
+  color: #fff;
+}
+
+.record-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255,255,255,0.15);
+}
 
 .record-btn {
   -webkit-app-region: no-drag;
-  background: #444; color: #fff; border: none;
-  padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  background: rgba(255,255,255,0.1);
+  color: #ddd;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
 }
-.record-btn:hover { background: #555; }
-.record-btn-stop { background: #cc3333; }
-.record-btn-stop:hover { background: #ee4444; }
+.record-btn:hover {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+}
+
+.record-btn-stop {
+  background: #cc3333;
+  color: #fff;
+}
+.record-btn-stop:hover {
+  background: #ee4444;
+}
+
+/* ========== 录制区域指示框 ========== */
+
+#record-region-border {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+.region-border {
+  position: absolute;
+  border: 2px solid #ff4444;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 0 12px rgba(255,68,68,0.3);
+  animation: region-pulse 2s infinite;
+}
+
+@keyframes region-pulse {
+  0%, 100% { border-color: #ff4444; box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 0 12px rgba(255,68,68,0.3); }
+  50% { border-color: #ff6666; box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 0 20px rgba(255,68,68,0.5); }
+}
+
+.region-label {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  font-size: 11px;
+  color: #ff4444;
+  background: rgba(0,0,0,0.7);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  white-space: nowrap;
+}
