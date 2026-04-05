@@ -12,6 +12,37 @@ html, body {
   cursor: crosshair;
 }
 
+/* 选区工具栏（保存/退出按钮） */
+.selection-toolbar {
+  position: fixed;
+  display: flex;
+  gap: 6px;
+  z-index: 9999;
+}
+
+.toolbar-btn {
+  padding: 4px 14px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #fff;
+}
+
+.toolbar-btn-save {
+  background: #00aaff;
+}
+.toolbar-btn-save:hover {
+  background: #0090dd;
+}
+
+.toolbar-btn-exit {
+  background: #666;
+}
+.toolbar-btn-exit:hover {
+  background: #888;
+}
+
 #drag-region {
   position: fixed;
   border: 2px solid #00aaff;

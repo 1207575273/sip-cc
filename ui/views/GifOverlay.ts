@@ -15,19 +15,30 @@ export function mountGifOverlay(container: HTMLElement): void {
   canvas.height = window.innerHeight;
 
   let isDragging = false;
+  let hasSelection = false;
+  let selX = 0, selY = 0, selW = 0, selH = 0;
   let rect: Rect = { startX: 0, startY: 0, endX: 0, endY: 0 };
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "selection-toolbar";
+  toolbar.style.display = "none";
+  toolbar.innerHTML = `
+    <button class="toolbar-btn toolbar-btn-save" id="btn-record">开始录制</button>
+    <button class="toolbar-btn toolbar-btn-exit" id="btn-exit">退出</button>
+  `;
+  container.appendChild(toolbar);
 
   function drawOverlay(): void {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    if (isDragging) {
-      const x = Math.min(rect.startX, rect.endX);
-      const y = Math.min(rect.startY, rect.endY);
-      const w = Math.abs(rect.endX - rect.startX);
-      const h = Math.abs(rect.endY - rect.startY);
+    const x = hasSelection ? selX : Math.min(rect.startX, rect.endX);
+    const y = hasSelection ? selY : Math.min(rect.startY, rect.endY);
+    const w = hasSelection ? selW : Math.abs(rect.endX - rect.startX);
+    const h = hasSelection ? selH : Math.abs(rect.endY - rect.startY);
 
+    if ((isDragging || hasSelection) && w > 0 && h > 0) {
       ctx.clearRect(x, y, w, h);
       ctx.strokeStyle = "#ff4444";
       ctx.lineWidth = 2;
@@ -39,7 +50,19 @@ export function mountGifOverlay(container: HTMLElement): void {
     }
   }
 
+  function showToolbar(): void {
+    const tbX = selX + selW - 160;
+    const tbY = selY + selH + 8;
+    toolbar.style.left = `${Math.max(0, tbX)}px`;
+    toolbar.style.top = `${Math.min(tbY, window.innerHeight - 40)}px`;
+    toolbar.style.display = "flex";
+  }
+
   canvas.addEventListener("mousedown", (e: MouseEvent) => {
+    if (hasSelection) {
+      hasSelection = false;
+      toolbar.style.display = "none";
+    }
     isDragging = true;
     rect.startX = e.clientX; rect.startY = e.clientY;
     rect.endX = e.clientX; rect.endY = e.clientY;
@@ -51,22 +74,40 @@ export function mountGifOverlay(container: HTMLElement): void {
     drawOverlay();
   });
 
-  canvas.addEventListener("mouseup", async () => {
+  canvas.addEventListener("mouseup", () => {
     isDragging = false;
-    const x = Math.min(rect.startX, rect.endX);
-    const y = Math.min(rect.startY, rect.endY);
-    const w = Math.abs(rect.endX - rect.startX);
-    const h = Math.abs(rect.endY - rect.startY);
+    selX = Math.min(rect.startX, rect.endX);
+    selY = Math.min(rect.startY, rect.endY);
+    selW = Math.abs(rect.endX - rect.startX);
+    selH = Math.abs(rect.endY - rect.startY);
 
-    if (w > 5 && h > 5) {
-      await startGifRecording(x, y, w, h);
+    if (selW > 5 && selH > 5) {
+      hasSelection = true;
+      drawOverlay();
+      showToolbar();
+    }
+  });
+
+  toolbar.querySelector("#btn-record")!.addEventListener("click", async () => {
+    if (hasSelection) {
+      await startGifRecording(selX, selY, selW, selH);
     }
     const win = getCurrentWindow();
     await win.close();
   });
 
-  canvas.addEventListener("keydown", async (e: KeyboardEvent) => {
+  toolbar.querySelector("#btn-exit")!.addEventListener("click", async () => {
+    const win = getCurrentWindow();
+    await win.close();
+  });
+
+  document.addEventListener("keydown", async (e: KeyboardEvent) => {
     if (e.key === "Escape") {
+      const win = getCurrentWindow();
+      await win.close();
+    }
+    if (e.key === "Enter" && hasSelection) {
+      await startGifRecording(selX, selY, selW, selH);
       const win = getCurrentWindow();
       await win.close();
     }

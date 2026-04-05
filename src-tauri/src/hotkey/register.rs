@@ -1,6 +1,8 @@
 use rdev::{grab, Event, EventType, Key};
+use std::cell::Cell;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 use crate::wal::logger::WalLogger;
@@ -9,32 +11,55 @@ use crate::wal::logger::WalLogger;
 pub enum HotkeyAction {
     Snap,
     GifRecord,
+    ForceQuit,
 }
 
 /// 启动全局快捷键监听，使用 rdev::grab 强制抢占 F1/F3。
-/// 被抢占的按键不会传递给其他程序。
+/// 双击 Ctrl+C（500ms 内按两次）强制退出应用。
 pub fn start_hotkey_listener(app: AppHandle) {
     let (tx, rx) = mpsc::channel::<HotkeyAction>();
 
-    // grab 线程：拦截 F1/F3，吞掉事件不传递给其他程序
     thread::spawn(move || {
+        // grab 回调是 Fn（非 FnMut），用 Cell 实现内部可变
+        let last_ctrl_c: Cell<Option<Instant>> = Cell::new(None);
+        let ctrl_held: Cell<bool> = Cell::new(false);
+
         grab(move |event: Event| -> Option<Event> {
             match event.event_type {
+                EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
+                    ctrl_held.set(true);
+                    Some(event)
+                }
+                EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
+                    ctrl_held.set(false);
+                    Some(event)
+                }
+                EventType::KeyPress(Key::KeyC) if ctrl_held.get() => {
+                    let now = Instant::now();
+                    if let Some(last) = last_ctrl_c.get() {
+                        if now.duration_since(last).as_millis() < 500 {
+                            let _ = tx.send(HotkeyAction::ForceQuit);
+                            last_ctrl_c.set(None);
+                            return Some(event);
+                        }
+                    }
+                    last_ctrl_c.set(Some(now));
+                    Some(event)
+                }
                 EventType::KeyPress(Key::F1) => {
                     let _ = tx.send(HotkeyAction::Snap);
-                    None // 强制抢占：吞掉事件
+                    None
                 }
                 EventType::KeyPress(Key::F3) => {
                     let _ = tx.send(HotkeyAction::GifRecord);
                     None
                 }
-                _ => Some(event), // 其他键正常传递
+                _ => Some(event),
             }
         })
         .expect("快捷键监听启动失败");
     });
 
-    // 处理线程：接收快捷键事件并执行对应操作
     thread::spawn(move || {
         while let Ok(action) = rx.recv() {
             let wal = app.state::<WalLogger>();
@@ -46,6 +71,10 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 HotkeyAction::GifRecord => {
                     wal.info("HOTKEY", "F3 触发 GIF 录制");
                     let _ = crate::commands::gif_cmd::open_gif_overlay(&app);
+                }
+                HotkeyAction::ForceQuit => {
+                    wal.info("HOTKEY", "Ctrl+C 双击强制退出");
+                    app.exit(0);
                 }
             }
         }
