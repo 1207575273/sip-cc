@@ -88,8 +88,21 @@ jobs:
             |------|------|
             | macOS (Apple Silicon) | `*.dmg` / `*.app.tar.gz` |
             | macOS (Intel)         | `*.dmg` / `*.app.tar.gz` |
-            | Windows               | `*.exe` / `*.msi` |
+            | Windows 安装版        | `*_x64-setup.exe` / `*.msi` |
+            | Windows 便携版        | `*_windows_x64_portable.zip` |
             | Linux                 | `*.AppImage` / `*.deb` |
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Windows 额外打包便携版 zip（解压即用，无需安装，依赖系统自带 WebView2）
+      - name: Package Windows portable zip
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = (Get-Content "src-tauri/tauri.conf.json" | ConvertFrom-Json).version
+          $zipName = "sip-cc_${version}_windows_x64_portable.zip"
+          Compress-Archive -Path "src-tauri/target/release/sip-cc.exe" -DestinationPath $zipName
+          gh release upload "app-v${version}" $zipName --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
