@@ -20,8 +20,8 @@ jobs:
             rust-target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
 
-          # macOS Intel (x86_64) — 如不需要 Intel Mac 可删除此条目
-          - platform: macos-13
+          # macOS Intel (x86_64) — 在 Apple Silicon runner 上交叉编译
+          - platform: macos-latest
             rust-target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
 
@@ -66,7 +66,9 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libpipewire-0.3-dev \
+            libclang-dev
 
       - name: Install frontend dependencies
         run: npm ci

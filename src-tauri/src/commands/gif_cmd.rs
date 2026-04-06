@@ -79,7 +79,7 @@ pub fn gif_start(
             "index.html?view=record-region&x={}&y={}&w={}&h={}",
             log_x, log_y, log_w, log_h
         );
-        if let Ok(region_win) = WebviewWindowBuilder::new(
+        let region_result: Result<tauri::WebviewWindow<tauri::Wry>, _> = WebviewWindowBuilder::new(
             &app_clone, "record-region",
             WebviewUrl::App(region_url.into()),
         )
@@ -89,8 +89,8 @@ pub fn gif_start(
         .always_on_top(true)
         .position(log_x as f64, log_y as f64)
         .inner_size(log_w as f64, log_h as f64)
-        .build()
-        {
+        .build();
+        if let Ok(region_win) = region_result {
             let _ = region_win.set_ignore_cursor_events(true);
         }
     });
