@@ -68,7 +68,10 @@ jobs:
             librsvg2-dev \
             patchelf \
             libpipewire-0.3-dev \
-            libclang-dev
+            libclang-dev \
+            libgbm-dev \
+            libdrm-dev \
+            libegl1-mesa-dev
 
       - name: Install frontend dependencies
         run: npm ci
