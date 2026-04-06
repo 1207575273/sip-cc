@@ -2,8 +2,8 @@ name: Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - release
   workflow_dispatch:
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
             args: ''
 
           # Linux x64
-          - platform: ubuntu-22.04
+          - platform: ubuntu-24.04
             rust-target: ''
             args: ''
 
@@ -59,7 +59,7 @@ jobs:
 
       # Linux 需要额外的系统依赖
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -78,7 +78,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: app-v__VERSION__
           releaseName: 'sip-cc v__VERSION__'
           releaseBody: |
             ## 更新内容
