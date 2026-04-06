@@ -103,9 +103,31 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
           $version = (Get-Content "src-tauri/tauri.conf.json" | ConvertFrom-Json).version
-          $zipName = "sip-cc_${version}_windows_x64_portable.zip"
-          Compress-Archive -Path "src-tauri/target/release/sip-cc.exe" -DestinationPath $zipName
-          gh release upload "app-v${version}" $zipName --clobber
+          $tagName  = "app-v${version}"
+          $exePath  = "src-tauri/target/release/sip-cc.exe"
+          $zipName  = "sip-cc_${version}_windows_x64_portable.zip"
+
+          Write-Host "=== Portable zip build ==="
+          Write-Host "Version : $version"
+          Write-Host "Tag     : $tagName"
+          Write-Host "Zip     : $zipName"
+
+          if (-not (Test-Path $exePath)) {
+            Write-Error "sip-cc.exe not found at $exePath"
+            exit 1
+          }
+
+          Compress-Archive -Path $exePath -DestinationPath $zipName -Force
+          Write-Host "Zip created: $(Get-Item $zipName | Select-Object -ExpandProperty Length) bytes"
+
+          Write-Host "=== Current releases ==="
+          gh release list --repo $env:GITHUB_REPOSITORY
+
+          Write-Host "=== Uploading to $tagName ==="
+          gh release upload $tagName $zipName --clobber --repo $env:GITHUB_REPOSITORY
+          Write-Host "Upload done."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
