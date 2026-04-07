@@ -138,20 +138,14 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
     Ok(path.to_string_lossy().to_string())
 }
 
-/// F3 触发：显示 overlay（GIF 模式）
+/// F3 触发：显示 overlay（GIF 模式），复用 snap_cmd::show_overlay 的平台适配逻辑
 pub fn open_gif_overlay(app: &AppHandle) -> Result<(), String> {
     let wal = app.state::<WalLogger>();
     wal.info("GIF", "F3/菜单触发，打开 GIF 选区");
 
-    // 先显示窗口
-    if let Some(win) = app.get_webview_window("overlay") {
-        let _ = win.set_fullscreen(true);
-        let _ = win.set_always_on_top(true);
-        win.show().map_err(|e| format!("显示 overlay 失败: {e}"))?;
-        let _ = win.set_focus();
-    }
+    // 复用 show_overlay 处理 macOS/Windows 差异
+    crate::commands::snap_cmd::open_overlay_window(app)?;
 
-    // 等窗口展开后再通知前端切换模式
     std::thread::sleep(std::time::Duration::from_millis(50));
     let _ = app.emit("overlay-mode", "gif-overlay");
 

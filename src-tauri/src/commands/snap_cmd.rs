@@ -29,10 +29,36 @@ pub fn get_scale_factor() -> f64 {
         .unwrap_or(1.0) as f64
 }
 
-/// 显示 overlay 窗口（复用预创建的窗口）
+/// 获取主显示器逻辑尺寸（用于 macOS 模拟全屏）
+fn get_screen_logical_size() -> (f64, f64) {
+    let scale = get_scale_factor();
+    Monitor::all()
+        .ok()
+        .and_then(|monitors| monitors.into_iter().find(|m| m.is_primary().unwrap_or(false)))
+        .map(|m| {
+            let w = m.width().unwrap_or(1920) as f64 / scale;
+            let h = m.height().unwrap_or(1080) as f64 / scale;
+            (w, h)
+        })
+        .unwrap_or((1920.0, 1080.0))
+}
+
+/// 显示 overlay 窗口（公开供 gif_cmd 复用）
+/// macOS：不用 fullscreen（会创建独立 Space 导致黑屏），用窗口尺寸覆盖屏幕
+/// Windows/Linux：用 fullscreen
+pub fn open_overlay_window(app: &AppHandle) -> Result<(), String> {
+    show_overlay(app)
+}
+
 fn show_overlay(app: &AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("overlay") {
-        let _ = win.set_fullscreen(true);
+        if cfg!(target_os = "macos") {
+            let (w, h) = get_screen_logical_size();
+            let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(0.0, 0.0)));
+            let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
+        } else {
+            let _ = win.set_fullscreen(true);
+        }
         let _ = win.set_always_on_top(true);
         win.show().map_err(|e| format!("显示 overlay 失败: {e}"))?;
         let _ = win.set_focus();
@@ -42,16 +68,18 @@ fn show_overlay(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-/// 隐藏 overlay 窗口（不销毁，节省内存）
+/// 隐藏 overlay 窗口
 pub fn hide_overlay(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("overlay") {
-        let _ = win.set_fullscreen(false);
+        if !cfg!(target_os = "macos") {
+            let _ = win.set_fullscreen(false);
+        }
         let _ = win.set_always_on_top(false);
         let _ = win.hide();
     }
 }
 
-/// 关闭所有可能存在的浮动窗口（record-bar、record-region）
+/// 关闭录制相关的浮动窗口
 pub fn close_floating_windows(app: &AppHandle) {
     for label in &["record-bar", "record-region"] {
         if let Some(win) = app.get_webview_window(label) {
@@ -60,20 +88,17 @@ pub fn close_floating_windows(app: &AppHandle) {
     }
 }
 
-/// 前端调用：通知 overlay 切换到指定模式
 #[tauri::command]
 pub fn set_overlay_mode(app: AppHandle, mode: String) -> Result<(), String> {
     app.emit("overlay-mode", mode).map_err(|e| e.to_string())
 }
 
-/// 前端调用：关闭/隐藏 overlay
 #[tauri::command]
 pub fn close_overlay(app: AppHandle) -> Result<(), String> {
     hide_overlay(&app);
     Ok(())
 }
 
-/// 截屏命令：从预截的全屏图中裁剪
 #[tauri::command]
 pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
     let wal = app.state::<WalLogger>();
@@ -90,14 +115,12 @@ pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
         phys_x, phys_y, phys_w, phys_h, scale
     ));
 
-    // 先隐藏 overlay（异步，避免卡死）
     let app_for_close = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(50));
         hide_overlay(&app_for_close);
     });
 
-    // 从预截的全屏图中裁剪
     let buffer = app.state::<ScreenBuffer>();
     let guard = buffer.image.lock().map_err(|e| e.to_string())?;
     let full_image = guard.as_ref().ok_or("没有预截的屏幕图像")?;
@@ -128,9 +151,7 @@ pub fn open_snap_overlay(app: &AppHandle) -> Result<(), String> {
 
     wal.info("SNAP", "全屏预截完成，显示选区遮罩");
 
-    // 先显示窗口，再通知前端切换模式（确保窗口尺寸就绪）
     show_overlay(app)?;
-    // 稍等窗口展开
     std::thread::sleep(std::time::Duration::from_millis(50));
     let _ = app.emit("overlay-mode", "snap-overlay");
     Ok(())

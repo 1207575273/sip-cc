@@ -50,17 +50,22 @@ pub fn run() {
             tray::create_tray(app.handle())?;
             hotkey::register::start_hotkey_listener(app.handle().clone());
 
-            let _overlay = WebviewWindowBuilder::new(
+            // 预创建 overlay 窗口（隐藏）
+            // macOS 不用 fullscreen（会创建独立 Space 导致黑屏）
+            let mut builder = WebviewWindowBuilder::new(
                 app, "overlay",
                 WebviewUrl::App("index.html?view=snap-overlay".into()),
             )
             .title("sip-cc overlay")
             .transparent(true)
             .decorations(false)
-            .always_on_top(true)
-            .fullscreen(true)
-            .visible(false)
-            .build()?;
+            .visible(false);
+
+            if !cfg!(target_os = "macos") {
+                builder = builder.fullscreen(true);
+            }
+
+            let _overlay = builder.build()?;
 
             wal.info("APP", "overlay 窗口预创建完成");
             Ok(())
