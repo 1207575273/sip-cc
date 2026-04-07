@@ -21,6 +21,12 @@ pub enum HotkeyAction {
 ///        （macOS F1-F12 默认是系统功能键，需要 fn 配合，体验差）
 ///        （macOS 需要授予辅助功能 Accessibility 权限才能监听全局键盘）
 pub fn start_hotkey_listener(app: AppHandle) {
+    // macOS: 检查辅助功能权限，未授权则弹出系统授权引导
+    #[cfg(target_os = "macos")]
+    {
+        prompt_accessibility_permission();
+    }
+
     let (tx, rx) = mpsc::channel::<HotkeyAction>();
 
     thread::spawn(move || {
@@ -118,4 +124,38 @@ pub fn start_hotkey_listener(app: AppHandle) {
             }
         }
     });
+}
+
+/// macOS: 检查辅助功能权限，未授权时触发系统弹窗引导用户授权
+/// 调用 AXIsProcessTrustedWithOptions，传入 kAXTrustedCheckOptionPrompt=true
+/// 系统会自动弹出"xxx 想要控制此电脑"的授权对话框
+#[cfg(target_os = "macos")]
+fn prompt_accessibility_permission() {
+    use std::process::Command;
+
+    // 用 osascript 检测并触发授权弹窗
+    // AXIsProcessTrustedWithOptions 是 macOS Accessibility API
+    // 这里通过 tccutil 无法绕过，但可以用 swift 代码触发系统弹窗
+    let script = r#"
+        use framework "Foundation"
+        use framework "ApplicationServices"
+
+        set options to current application's NSDictionary's dictionaryWithObject:true forKey:"AXTrustedCheckOptionPrompt"
+        set trusted to current application's AXIsProcessTrustedWithOptions(options)
+        return trusted as boolean
+    "#;
+
+    match Command::new("osascript").args(["-l", "AppleScript", "-e", script]).output() {
+        Ok(output) => {
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if result == "true" {
+                eprintln!("[sip-cc] macOS 辅助功能权限: 已授权");
+            } else {
+                eprintln!("[sip-cc] macOS 辅助功能权限: 未授权，已弹出系统授权引导");
+            }
+        }
+        Err(e) => {
+            eprintln!("[sip-cc] 辅助功能权限检查失败: {e}");
+        }
+    }
 }
