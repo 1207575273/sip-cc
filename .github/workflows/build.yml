@@ -7,7 +7,59 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 第一步：自动递增 patch 版本号（仅在版本未变时），确保每次 release 推送都有新版本
+  bump-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      bumped: ${{ steps.check.outputs.bumped }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release
+
+      - name: Read current version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          if git ls-remote --tags origin | grep -q "refs/tags/app-v${VERSION}$"; then
+            echo "Tag app-v${VERSION} exists, need bump"
+            echo "bumped=true" >> $GITHUB_OUTPUT
+
+            # 递增 patch 版本号
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Bumping to: $NEW_VERSION"
+
+            # 更新三个文件
+            sed -i "s/\"version\": \"${VERSION}\"/\"version\": \"${NEW_VERSION}\"/" src-tauri/tauri.conf.json
+            sed -i "s/\"version\": \"${VERSION}\"/\"version\": \"${NEW_VERSION}\"/" package.json
+            sed -i "s/^version = \"${VERSION}\"/version = \"${NEW_VERSION}\"/" src-tauri/Cargo.toml
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "chore: auto bump version ${VERSION} → ${NEW_VERSION}"
+            git push origin release
+          else
+            echo "Tag app-v${VERSION} does not exist, no bump needed"
+            echo "bumped=false" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: bump-version
     permissions:
       contents: write
 
@@ -38,8 +90,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - name: Checkout
+      - name: Checkout (latest, including auto-bump)
         uses: actions/checkout@v4
+        with:
+          ref: release
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -94,11 +148,11 @@ jobs:
             | Windows 安装版        | `*_x64-setup.exe` / `*.msi` |
             | Windows 便携版        | `*_windows_x64_portable.zip` |
             | Linux                 | `*.AppImage` / `*.deb` |
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
-      # Windows 额外打包便携版 zip（解压即用，无需安装，依赖系统自带 WebView2）
+      # Windows 额外打包便携版 zip
       - name: Package Windows portable zip
         if: matrix.platform == 'windows-latest'
         shell: pwsh
