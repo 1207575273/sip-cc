@@ -11,8 +11,14 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let config_manager = app.state::<ConfigManager>();
     let config = config_manager.config.lock().unwrap().clone();
 
-    let snap_item = MenuItem::with_id(app, "snap", "截屏\tF1", true, None::<&str>)?;
-    let gif_item = MenuItem::with_id(app, "gif", "录制 GIF\tF3", true, None::<&str>)?;
+    // macOS 快捷键是 Cmd+Shift+1/3，Windows/Linux 是 F1/F3
+    let (snap_key, gif_key) = if cfg!(target_os = "macos") {
+        ("⌘⇧1", "⌘⇧3")
+    } else {
+        ("F1", "F3")
+    };
+    let snap_item = MenuItem::with_id(app, "snap", &format!("截屏\t{snap_key}"), true, None::<&str>)?;
+    let gif_item = MenuItem::with_id(app, "gif", &format!("录制 GIF\t{gif_key}"), true, None::<&str>)?;
 
     let sep1 = PredefinedMenuItem::separator(app)?;
 

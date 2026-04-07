@@ -130,9 +130,8 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
         close_floating_windows(&app_clone);
     });
 
-    let mut cb = arboard::Clipboard::new().map_err(|e| format!("剪贴板初始化失败: {e}"))?;
-    cb.set_text(path.to_string_lossy().to_string())
-        .map_err(|e| format!("复制路径失败: {e}"))?;
+    // 复制 GIF 文件到剪贴板（macOS: 文件引用，Windows: 路径文本）
+    crate::output::clipboard::copy_file_to_clipboard(&path)?;
 
     wal.info("GIF", &format!("录制停止 | path={}", path.to_string_lossy()));
     Ok(path.to_string_lossy().to_string())
