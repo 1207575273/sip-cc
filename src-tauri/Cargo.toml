@@ -24,3 +24,7 @@ dirs = "6"
 rfd = "0.15"
 chrono = "0.4"
 open = "5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25"
+core-foundation = "0.10"
