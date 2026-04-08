@@ -126,7 +126,7 @@ fn start_macos_listener(tx: mpsc::Sender<HotkeyAction>) {
 
         let tap = CGEventTap::new(
             CGEventTapLocation::Session,
-            CGEventTapPlacement::HeadInsert,
+            CGEventTapPlacement::HeadInsertEventTap,
             CGEventTapOptions::Default,
             vec![CGEventType::KeyDown],
             move |_proxy, _event_type, event| {
