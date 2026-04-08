@@ -1,8 +1,5 @@
-use rdev::{listen, Event, EventType, Key};
-use std::cell::Cell;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 use crate::wal::logger::WalLogger;
@@ -16,12 +13,13 @@ pub enum HotkeyAction {
 
 /// 启动全局快捷键监听。
 ///
-/// Windows/Linux: F1 截屏，F3 录制 GIF，双击 Ctrl+C 强制退出
-/// macOS: Cmd+Shift+1 截屏，Cmd+Shift+3 录制 GIF，双击 Cmd+C 强制退出
-///        （macOS F1-F12 默认是系统功能键，需要 fn 配合，体验差）
-///        （macOS 需要授予辅助功能 Accessibility 权限才能监听全局键盘）
+/// Windows/Linux: F1 截屏，F3 录制 GIF，双击 Ctrl+C 强制退出（使用 rdev）
+/// macOS: Cmd+Shift+1 截屏，Cmd+Shift+3 录制 GIF，双击 Cmd+C 强制退出（使用原生 CGEventTap）
+///
+/// macOS 不用 rdev 的原因：rdev::listen 内部调用 Keyboard::string_from_code → TSMGetInputSourceProperty，
+/// 该 API 在 macOS 15+ 要求主线程执行（dispatch_assert_queue 断言），在子线程调用直接崩溃 (SIGTRAP)。
+/// 改用 CGEventTap 直接读取 keycode，完全绕开 HIToolbox 的字符映射。
 pub fn start_hotkey_listener(app: AppHandle) {
-    // macOS: 检查辅助功能权限，未授权则弹出系统授权引导
     #[cfg(target_os = "macos")]
     {
         prompt_accessibility_permission();
@@ -29,77 +27,13 @@ pub fn start_hotkey_listener(app: AppHandle) {
 
     let (tx, rx) = mpsc::channel::<HotkeyAction>();
 
-    thread::spawn(move || {
-        let ctrl_held: Cell<bool> = Cell::new(false);   // Windows/Linux: Ctrl
-        let meta_held: Cell<bool> = Cell::new(false);    // macOS: Cmd (MetaLeft/MetaRight)
-        let shift_held: Cell<bool> = Cell::new(false);
-        let last_quit_combo: Cell<Option<Instant>> = Cell::new(None);
+    #[cfg(target_os = "macos")]
+    start_macos_listener(tx);
 
-        listen(move |event: Event| {
-            match event.event_type {
-                // Ctrl 键（Windows/Linux 的修饰键）
-                EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
-                    ctrl_held.set(true);
-                }
-                EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
-                    ctrl_held.set(false);
-                }
-                // Cmd 键（macOS 的修饰键）
-                EventType::KeyPress(Key::MetaLeft) | EventType::KeyPress(Key::MetaRight) => {
-                    meta_held.set(true);
-                }
-                EventType::KeyRelease(Key::MetaLeft) | EventType::KeyRelease(Key::MetaRight) => {
-                    meta_held.set(false);
-                }
-                // Shift 键
-                EventType::KeyPress(Key::ShiftLeft) | EventType::KeyPress(Key::ShiftRight) => {
-                    shift_held.set(true);
-                }
-                EventType::KeyRelease(Key::ShiftLeft) | EventType::KeyRelease(Key::ShiftRight) => {
-                    shift_held.set(false);
-                }
+    #[cfg(not(target_os = "macos"))]
+    start_rdev_listener(tx);
 
-                // === 截屏快捷键 ===
-                // Windows/Linux: F1
-                EventType::KeyPress(Key::F1) if !meta_held.get() => {
-                    let _ = tx.send(HotkeyAction::Snap);
-                }
-                // macOS: Cmd+Shift+1
-                EventType::KeyPress(Key::Num1) if meta_held.get() && shift_held.get() => {
-                    let _ = tx.send(HotkeyAction::Snap);
-                }
-
-                // === GIF 录制快捷键 ===
-                // Windows/Linux: F3
-                EventType::KeyPress(Key::F3) if !meta_held.get() => {
-                    let _ = tx.send(HotkeyAction::GifRecord);
-                }
-                // macOS: Cmd+Shift+3
-                EventType::KeyPress(Key::Num3) if meta_held.get() && shift_held.get() => {
-                    let _ = tx.send(HotkeyAction::GifRecord);
-                }
-
-                // === 强制退出 ===
-                // Windows/Linux: 双击 Ctrl+C
-                // macOS: 双击 Cmd+C
-                EventType::KeyPress(Key::KeyC) if ctrl_held.get() || meta_held.get() => {
-                    let now = Instant::now();
-                    if let Some(last) = last_quit_combo.get() {
-                        if now.duration_since(last).as_millis() < 500 {
-                            let _ = tx.send(HotkeyAction::ForceQuit);
-                            last_quit_combo.set(None);
-                            return;
-                        }
-                    }
-                    last_quit_combo.set(Some(now));
-                }
-
-                _ => {}
-            }
-        })
-        .expect("快捷键监听启动失败");
-    });
-
+    // 处理线程
     thread::spawn(move || {
         while let Ok(action) = rx.recv() {
             let wal = app.state::<WalLogger>();
@@ -126,16 +60,136 @@ pub fn start_hotkey_listener(app: AppHandle) {
     });
 }
 
-/// macOS: 检查辅助功能权限，未授权时触发系统弹窗引导用户授权
-/// 调用 AXIsProcessTrustedWithOptions，传入 kAXTrustedCheckOptionPrompt=true
-/// 系统会自动弹出"xxx 想要控制此电脑"的授权对话框
+// ========== Windows/Linux: 使用 rdev ==========
+
+#[cfg(not(target_os = "macos"))]
+fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
+    use rdev::{listen, Event, EventType, Key};
+    use std::cell::Cell;
+    use std::time::Instant;
+
+    thread::spawn(move || {
+        let ctrl_held: Cell<bool> = Cell::new(false);
+        let last_ctrl_c: Cell<Option<Instant>> = Cell::new(None);
+
+        listen(move |event: Event| {
+            match event.event_type {
+                EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
+                    ctrl_held.set(true);
+                }
+                EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
+                    ctrl_held.set(false);
+                }
+                EventType::KeyPress(Key::F1) => {
+                    let _ = tx.send(HotkeyAction::Snap);
+                }
+                EventType::KeyPress(Key::F3) => {
+                    let _ = tx.send(HotkeyAction::GifRecord);
+                }
+                EventType::KeyPress(Key::KeyC) if ctrl_held.get() => {
+                    let now = Instant::now();
+                    if let Some(last) = last_ctrl_c.get() {
+                        if now.duration_since(last).as_millis() < 500 {
+                            let _ = tx.send(HotkeyAction::ForceQuit);
+                            last_ctrl_c.set(None);
+                            return;
+                        }
+                    }
+                    last_ctrl_c.set(Some(now));
+                }
+                _ => {}
+            }
+        })
+        .expect("快捷键监听启动失败");
+    });
+}
+
+// ========== macOS: 使用原生 CGEventTap ==========
+// 直接读取 keycode + modifier flags，不调用 HIToolbox 字符映射，避免 macOS 15+ 崩溃
+
+#[cfg(target_os = "macos")]
+fn start_macos_listener(tx: mpsc::Sender<HotkeyAction>) {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    thread::spawn(move || {
+        use core_graphics::event::*;
+        use core_foundation::runloop::*;
+
+        // macOS keycodes（硬件扫描码）
+        const KC_1: i64 = 18;  // 数字 1
+        const KC_3: i64 = 20;  // 数字 3
+        const KC_C: i64 = 8;   // 字母 C
+
+        let last_cmd_c: Mutex<Option<Instant>> = Mutex::new(None);
+        let tx = Mutex::new(tx);
+
+        let tap = CGEventTap::new(
+            CGEventTapLocation::Session,
+            CGEventTapPlacement::HeadInsert,
+            CGEventTapOptions::Default,
+            vec![CGEventType::KeyDown],
+            move |_proxy, _event_type, event| {
+                let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+                let flags = event.get_flags();
+                let cmd = flags.contains(CGEventFlags::CGEventFlagCommand);
+                let shift = flags.contains(CGEventFlags::CGEventFlagShift);
+
+                let tx = tx.lock().unwrap();
+
+                // Cmd+Shift+1 → 截屏
+                if cmd && shift && keycode == KC_1 {
+                    let _ = tx.send(HotkeyAction::Snap);
+                    return CallbackResult::Drop;
+                }
+                // Cmd+Shift+3 → GIF 录制
+                if cmd && shift && keycode == KC_3 {
+                    let _ = tx.send(HotkeyAction::GifRecord);
+                    return CallbackResult::Drop;
+                }
+                // Cmd+C 双击 → 强制退出
+                if cmd && keycode == KC_C {
+                    let now = Instant::now();
+                    let mut guard = last_cmd_c.lock().unwrap();
+                    if let Some(last) = *guard {
+                        if now.duration_since(last).as_millis() < 500 {
+                            let _ = tx.send(HotkeyAction::ForceQuit);
+                            *guard = None;
+                            return CallbackResult::Keep;
+                        }
+                    }
+                    *guard = Some(now);
+                }
+
+                CallbackResult::Keep
+            },
+        );
+
+        match tap {
+            Ok(tap) => {
+                let source = tap.mach_port()
+                    .create_runloop_source(0)
+                    .expect("RunLoop source 创建失败");
+
+                unsafe {
+                    let run_loop = CFRunLoop::get_current();
+                    run_loop.add_source(&source, kCFRunLoopCommonModes);
+                }
+                tap.enable();
+                CFRunLoop::run_current();
+            }
+            Err(()) => {
+                eprintln!("[sip-cc] CGEventTap 创建失败，需要辅助功能权限");
+            }
+        }
+    });
+}
+
+/// macOS: 检查辅助功能权限，未授权时触发系统弹窗引导
 #[cfg(target_os = "macos")]
 fn prompt_accessibility_permission() {
     use std::process::Command;
 
-    // 用 osascript 检测并触发授权弹窗
-    // AXIsProcessTrustedWithOptions 是 macOS Accessibility API
-    // 这里通过 tccutil 无法绕过，但可以用 swift 代码触发系统弹窗
     let script = r#"
         use framework "Foundation"
         use framework "ApplicationServices"
