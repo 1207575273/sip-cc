@@ -9,6 +9,10 @@ use tauri::{AppHandle, Manager};
 use super::keybinding::Keybinding;
 use crate::wal::logger::WalLogger;
 
+const DOUBLE_CLICK_TIMEOUT_MS: u128 = 500;
+const MAX_RETRIES: u32 = 3;
+const RETRY_DELAY_SECS: u64 = 3;
+
 #[derive(Debug)]
 pub enum HotkeyAction {
     Snap,
@@ -124,7 +128,6 @@ fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
 
     thread::spawn(move || {
         let mut retries = 0u32;
-        const MAX_RETRIES: u32 = 3;
 
         loop {
             let tx_clone = tx.clone();
@@ -161,7 +164,7 @@ fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
                                         alt_held.get(),
                                     ) {
                                         if binding.double {
-                                            // 连击检测：500ms 内同一 action 连续触发两次
+                                            // 连击检测：DOUBLE_CLICK_TIMEOUT_MS 内同一 action 连续触发两次
                                             let now = Instant::now();
                                             let should_fire = {
                                                 let guard = last_double.borrow();
@@ -171,7 +174,7 @@ fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
                                                         && now
                                                             .duration_since(prev_time)
                                                             .as_millis()
-                                                            < 500
+                                                            < DOUBLE_CLICK_TIMEOUT_MS
                                                 } else {
                                                     false
                                                 }
@@ -203,9 +206,9 @@ fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
             eprintln!("[sip-cc] 快捷键监听崩溃，第 {retries} 次重试");
             if retries >= MAX_RETRIES {
                 eprintln!("[sip-cc] 快捷键监听重试耗尽，请通过托盘菜单操作");
-                break;
+                return;
             }
-            thread::sleep(std::time::Duration::from_secs(3));
+            thread::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS));
         }
     });
 }
@@ -222,7 +225,6 @@ fn start_macos_listener(tx: mpsc::Sender<HotkeyAction>) {
 
     thread::spawn(move || {
         let mut retries = 0u32;
-        const MAX_RETRIES: u32 = 3;
 
         loop {
             let tx_clone = tx.clone();
@@ -257,7 +259,7 @@ fn start_macos_listener(tx: mpsc::Sender<HotkeyAction>) {
                                         let mut guard = last_double.lock().unwrap();
                                         if let Some((ref prev_action, prev_time)) = *guard {
                                             if prev_action == action
-                                                && now.duration_since(prev_time).as_millis() < 500
+                                                && now.duration_since(prev_time).as_millis() < DOUBLE_CLICK_TIMEOUT_MS
                                             {
                                                 let _ = tx.send(action_from_name(action));
                                                 *guard = None;
@@ -304,9 +306,9 @@ fn start_macos_listener(tx: mpsc::Sender<HotkeyAction>) {
             eprintln!("[sip-cc] 快捷键监听崩溃，第 {retries} 次重试");
             if retries >= MAX_RETRIES {
                 eprintln!("[sip-cc] 快捷键监听重试耗尽，请通过托盘菜单操作");
-                break;
+                return;
             }
-            thread::sleep(std::time::Duration::from_secs(3));
+            thread::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS));
         }
     });
 }

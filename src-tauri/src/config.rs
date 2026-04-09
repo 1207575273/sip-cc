@@ -94,10 +94,14 @@ impl ConfigManager {
     }
 
     fn load_from_file(path: &PathBuf) -> AppConfig {
-        match fs::read_to_string(path) {
+        let mut config = match fs::read_to_string(path) {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => AppConfig::default(),
-        }
+        };
+        // 校验配置范围，防止非法值
+        config.gif_fps = config.gif_fps.clamp(1, 60);
+        config.gif_max_duration_secs = config.gif_max_duration_secs.clamp(1, 600);
+        config
     }
 
     /// 确保配置文件存在，不存在则写入默认配置
@@ -128,5 +132,97 @@ impl ConfigManager {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| dirs::desktop_dir().unwrap_or_else(|| PathBuf::from("."))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== 默认值测试 ==========
+
+    #[test]
+    fn should_have_correct_defaults() {
+        let config = AppConfig::default();
+        assert_eq!(config.save_dir, SaveDir::Desktop);
+        assert_eq!(config.custom_save_dir, None);
+        assert_eq!(config.gif_fps, 10);
+        assert_eq!(config.gif_max_duration_secs, 180);
+    }
+
+    #[test]
+    fn should_have_platform_default_hotkeys() {
+        let hotkeys = HotkeyConfig::default();
+        if cfg!(target_os = "macos") {
+            assert_eq!(hotkeys.snap, "Ctrl+Shift+1");
+            assert_eq!(hotkeys.gif, "Ctrl+Shift+3");
+        } else {
+            assert_eq!(hotkeys.snap, "F1");
+            assert_eq!(hotkeys.gif, "F3");
+        }
+        assert_eq!(hotkeys.force_quit, "Ctrl+C,Ctrl+C");
+    }
+
+    // ========== 序列化/反序列化测试 ==========
+
+    #[test]
+    fn should_serialize_and_deserialize_config() {
+        let config = AppConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let restored: AppConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.gif_fps, 10);
+        assert_eq!(restored.gif_max_duration_secs, 180);
+        assert_eq!(restored.save_dir, SaveDir::Desktop);
+    }
+
+    #[test]
+    fn should_deserialize_with_missing_hotkeys_field() {
+        // 旧版配置没有 hotkeys 字段，应该用默认值
+        let json = r#"{"save_dir":"desktop","custom_save_dir":null,"gif_fps":10,"gif_max_duration_secs":180}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        // hotkeys 应该是默认值
+        assert!(!config.hotkeys.snap.is_empty());
+        assert!(!config.hotkeys.gif.is_empty());
+    }
+
+    #[test]
+    fn should_deserialize_invalid_json_to_default() {
+        let result: Result<AppConfig, _> = serde_json::from_str("not valid json");
+        assert!(result.is_err());
+        // load_from_file 内部会 unwrap_or_default
+    }
+
+    // ========== 范围校验测试 ==========
+
+    #[test]
+    fn should_clamp_gif_fps_too_high() {
+        let json = r#"{"save_dir":"desktop","custom_save_dir":null,"gif_fps":1000,"gif_max_duration_secs":180}"#;
+        let mut config: AppConfig = serde_json::from_str(json).unwrap();
+        config.gif_fps = config.gif_fps.clamp(1, 60);
+        assert_eq!(config.gif_fps, 60);
+    }
+
+    #[test]
+    fn should_clamp_gif_fps_too_low() {
+        let json = r#"{"save_dir":"desktop","custom_save_dir":null,"gif_fps":0,"gif_max_duration_secs":180}"#;
+        let mut config: AppConfig = serde_json::from_str(json).unwrap();
+        config.gif_fps = config.gif_fps.clamp(1, 60);
+        assert_eq!(config.gif_fps, 1);
+    }
+
+    #[test]
+    fn should_clamp_duration_too_high() {
+        let json = r#"{"save_dir":"desktop","custom_save_dir":null,"gif_fps":10,"gif_max_duration_secs":99999}"#;
+        let mut config: AppConfig = serde_json::from_str(json).unwrap();
+        config.gif_max_duration_secs = config.gif_max_duration_secs.clamp(1, 600);
+        assert_eq!(config.gif_max_duration_secs, 600);
+    }
+
+    // ========== SaveDir 枚举测试 ==========
+
+    #[test]
+    fn should_serialize_save_dir() {
+        assert_eq!(serde_json::to_string(&SaveDir::Desktop).unwrap(), "\"desktop\"");
+        assert_eq!(serde_json::to_string(&SaveDir::Custom).unwrap(), "\"custom\"");
     }
 }

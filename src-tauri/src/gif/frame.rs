@@ -4,13 +4,14 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::snap::{capture, crop};
+use crate::snap::capture;
 
 use super::encode::GifEncoder;
 
 const STATE_RECORDING: u8 = 0;
 const STATE_PAUSED: u8 = 1;
 const STATE_STOPPED: u8 = 2;
+const PAUSE_SLEEP_MS: u64 = 50;
 
 pub struct RecordingSession {
     state: Arc<AtomicU8>,
@@ -43,35 +44,26 @@ impl RecordingSession {
                 if start_time.elapsed() >= max_duration { break; }
 
                 if current_state == STATE_PAUSED {
-                    thread::sleep(Duration::from_millis(50));
+                    thread::sleep(Duration::from_millis(PAUSE_SLEEP_MS));
                     continue;
                 }
 
                 let frame_start = Instant::now();
 
-                // 每帧截屏 + 裁剪，捕获错误而不是 panic
-                match capture::capture_primary_screen() {
-                    Ok(screen) => {
-                        match crop::crop_rgba(&screen.image, x, y, width, height) {
-                            Ok(cropped) => {
-                                if let Err(e) = encoder.add_frame(
-                                    cropped.as_raw(),
-                                    cropped.width() as u16,
-                                    cropped.height() as u16,
-                                ) {
-                                    eprintln!("GIF 写入帧失败: {e}");
-                                    break;
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("GIF 裁剪失败: {e}");
-                                break;
-                            }
+                // 直接截取指定区域（比截全屏再裁剪性能高很多）
+                match capture::capture_region(x, y, width, height) {
+                    Ok(image) => {
+                        if let Err(e) = encoder.add_frame(
+                            image.as_raw(),
+                            image.width() as u16,
+                            image.height() as u16,
+                        ) {
+                            eprintln!("GIF 写入帧失败: {e}");
+                            break;
                         }
                     }
                     Err(e) => {
                         eprintln!("GIF 截屏失败: {e}");
-                        // 截屏偶尔失败可以跳过这一帧
                         continue;
                     }
                 }

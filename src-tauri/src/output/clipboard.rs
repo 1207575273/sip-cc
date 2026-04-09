@@ -5,14 +5,12 @@ use std::path::PathBuf;
 /// 复制图片到剪贴板
 /// 先写入 PNG 格式（macOS 兼容性好），失败则回退到 RGBA 原始格式
 pub fn copy_image(pixels: &[u8], width: usize, height: usize) -> Result<(), String> {
-    // 尝试用 PNG 格式写入（macOS 上 RGBA 格式不被微信等应用识别）
     if let Ok(png_data) = encode_png(pixels, width as u32, height as u32) {
         if copy_png_to_clipboard(&png_data).is_ok() {
             return Ok(());
         }
     }
 
-    // 回退到 RGBA 格式（Windows 上这个更通用）
     let mut cb = Clipboard::new().map_err(|e| format!("剪贴板初始化失败: {e}"))?;
     let data = ImageData {
         width,
@@ -23,12 +21,17 @@ pub fn copy_image(pixels: &[u8], width: usize, height: usize) -> Result<(), Stri
 }
 
 /// 复制文件到剪贴板（跨平台）
-/// macOS: 通过 osascript 写入文件引用，粘贴时是文件本身
-/// Windows/Linux: 复制文件路径文本
+/// Windows: Win32 CF_HDROP（粘贴出来是文件，和资源管理器 Ctrl+C 一样）
+/// macOS: osascript POSIX file（粘贴出来是文件）
+/// Linux: 回退到路径文本
 pub fn copy_file_to_clipboard(path: &PathBuf) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return copy_file_windows(path);
+    }
+
     #[cfg(target_os = "macos")]
     {
-        // macOS 用 osascript 把文件写入剪贴板（粘贴出来是文件，不是路径文本）
         let path_str = path.to_string_lossy();
         let script = format!(
             "set the clipboard to (POSIX file \"{}\")",
@@ -42,15 +45,105 @@ pub fn copy_file_to_clipboard(path: &PathBuf) -> Result<(), String> {
         if output.status.success() {
             return Ok(());
         }
-        // osascript 失败，回退到文本
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("osascript 失败: {stderr}，回退到文本复制");
+        eprintln!("osascript 失败: {}，回退到文本", String::from_utf8_lossy(&output.stderr));
     }
 
-    // Windows/Linux 或 macOS 回退：复制路径文本
-    let mut cb = Clipboard::new().map_err(|e| format!("剪贴板初始化失败: {e}"))?;
-    cb.set_text(path.to_string_lossy().to_string())
-        .map_err(|e| format!("复制路径失败: {e}"))
+    // Linux 或回退：复制路径文本
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cb = Clipboard::new().map_err(|e| format!("剪贴板初始化失败: {e}"))?;
+        cb.set_text(path.to_string_lossy().to_string())
+            .map_err(|e| format!("复制路径失败: {e}"))
+    }
+}
+
+/// Windows: 用 Win32 API 把文件放入剪贴板（CF_HDROP 格式）
+/// 粘贴时等同于资源管理器里 Ctrl+C 复制文件
+#[cfg(target_os = "windows")]
+fn copy_file_windows(path: &PathBuf) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+
+    // 将路径转为 UTF-16 宽字符，双 null 结尾
+    let wide_path: Vec<u16> = OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0)) // 路径 null 结尾
+        .collect();
+
+    // DROPFILES 结构体大小（20 字节）
+    let dropfiles_size = 20u32;
+    let total_size = dropfiles_size as usize + (wide_path.len() + 1) * 2; // +1 for extra null terminator
+
+    unsafe {
+        // Win32 API 声明
+        #[link(name = "user32")]
+        extern "system" {
+            fn OpenClipboard(hwnd: *mut std::ffi::c_void) -> i32;
+            fn CloseClipboard() -> i32;
+            fn EmptyClipboard() -> i32;
+            fn SetClipboardData(format: u32, hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        }
+
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GlobalAlloc(flags: u32, bytes: usize) -> *mut std::ffi::c_void;
+            fn GlobalLock(hmem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+            fn GlobalUnlock(hmem: *mut std::ffi::c_void) -> i32;
+        }
+
+        const CF_HDROP: u32 = 15;
+        const GMEM_MOVEABLE: u32 = 0x0002;
+        const GMEM_ZEROINIT: u32 = 0x0040;
+
+        // 分配全局内存
+        let hmem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total_size);
+        if hmem.is_null() {
+            return Err("GlobalAlloc 失败".to_string());
+        }
+
+        let ptr = GlobalLock(hmem);
+        if ptr.is_null() {
+            return Err("GlobalLock 失败".to_string());
+        }
+
+        // 写入 DROPFILES 结构体
+        // typedef struct _DROPFILES {
+        //   DWORD pFiles;   // offset 0: 文件名列表的偏移量
+        //   POINT pt;       // offset 4: 未使用
+        //   BOOL  fNC;      // offset 12: 未使用
+        //   BOOL  fWide;    // offset 16: TRUE = Unicode
+        // }
+        let dropfiles = ptr as *mut u8;
+        // pFiles = dropfiles_size（文件名列表紧跟在结构体后面）
+        *(dropfiles as *mut u32) = dropfiles_size;
+        // fWide = 1 (TRUE, 使用 Unicode)
+        *(dropfiles.add(16) as *mut u32) = 1;
+
+        // 写入文件路径（UTF-16）
+        let file_start = dropfiles.add(dropfiles_size as usize) as *mut u16;
+        for (i, &ch) in wide_path.iter().enumerate() {
+            *file_start.add(i) = ch;
+        }
+        // 额外的 null terminator（文件列表结束标志）
+        *file_start.add(wide_path.len()) = 0;
+
+        GlobalUnlock(hmem);
+
+        // 打开剪贴板并设置数据
+        if OpenClipboard(ptr::null_mut()) == 0 {
+            return Err("OpenClipboard 失败".to_string());
+        }
+        EmptyClipboard();
+        let result = SetClipboardData(CF_HDROP, hmem);
+        CloseClipboard();
+
+        if result.is_null() {
+            return Err("SetClipboardData 失败".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 /// 将 RGBA 像素编码为 PNG 字节
@@ -68,10 +161,6 @@ fn encode_png(pixels: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String>
 fn copy_png_to_clipboard(png_data: &[u8]) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        // macOS: 通过 pbcopy 或 osascript 不方便写二进制，用 arboard 的 image 方式
-        // 但先解码回 RGBA 让 arboard 处理格式转换
-        // 实际上 arboard 在 macOS 上内部会转为 NSImage，PNG 和 RGBA 效果一样
-        // 所以 macOS 上我们直接用临时文件 + osascript 写入 PNG
         use std::io::Write;
         let tmp = std::env::temp_dir().join("sip-cc-clipboard.png");
         let mut file = std::fs::File::create(&tmp)
@@ -80,7 +169,6 @@ fn copy_png_to_clipboard(png_data: &[u8]) -> Result<(), String> {
             .map_err(|e| format!("写入临时文件失败: {e}"))?;
         drop(file);
 
-        // 用 osascript 把 PNG 图片写入剪贴板
         let script = format!(
             "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
             tmp.to_string_lossy()
@@ -100,8 +188,6 @@ fn copy_png_to_clipboard(png_data: &[u8]) -> Result<(), String> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        // Windows/Linux: arboard 的 set_image 已经能正确处理
-        // 解码 PNG 回 RGBA 再用 arboard
         let img = image::load_from_memory(png_data)
             .map_err(|e| format!("PNG 解码失败: {e}"))?;
         let rgba = img.to_rgba8();
