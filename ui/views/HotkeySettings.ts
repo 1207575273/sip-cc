@@ -194,13 +194,21 @@ export function mountHotkeySettings(container: HTMLElement): void {
       await invoke("set_hotkeys", { hotkeys: draft });
       tipEl.textContent = "保存成功！";
       tipEl.className = "hotkey-tip hotkey-tip--info";
-      // 延迟关窗口，让用户看到反馈
+      btnSave.textContent = "已保存";
+      // 关窗口：多种方式兜底
       setTimeout(async () => {
         try {
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          await getCurrentWindow().close();
+          // 方式1：Rust 命令关闭
+          await invoke("close_window", { label: "hotkey-settings" });
         } catch (_) {
-          // 窗口关闭失败不影响保存结果
+          try {
+            // 方式2：前端 API 关闭
+            const { getCurrentWindow } = await import("@tauri-apps/api/window");
+            await getCurrentWindow().close();
+          } catch (__) {
+            // 方式3：隐藏内容，等用户手动关
+            document.body.style.display = "none";
+          }
         }
       }, 500);
     } catch (err) {
