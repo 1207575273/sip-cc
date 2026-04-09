@@ -9,6 +9,9 @@ use crate::output::{clipboard, save};
 use crate::snap::crop;
 use crate::wal::logger::WalLogger;
 
+const WINDOW_HIDE_DELAY_MS: u64 = 50;
+const OVERLAY_SHOW_DELAY_MS: u64 = 50;
+
 #[derive(Debug, Deserialize)]
 pub struct Region {
     pub x: i32,
@@ -117,7 +120,7 @@ pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
 
     let app_for_close = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(WINDOW_HIDE_DELAY_MS));
         hide_overlay(&app_for_close);
     });
 
@@ -152,7 +155,7 @@ pub fn open_snap_overlay(app: &AppHandle) -> Result<(), String> {
     wal.info("SNAP", "全屏预截完成，显示选区遮罩");
 
     show_overlay(app)?;
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(OVERLAY_SHOW_DELAY_MS));
     let _ = app.emit("overlay-mode", "snap-overlay");
     Ok(())
 }

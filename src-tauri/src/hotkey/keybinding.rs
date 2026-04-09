@@ -226,7 +226,7 @@ pub fn detect_conflicts(bindings: &HashMap<String, Keybinding>) -> Vec<(String, 
     conflicts
 }
 
-/// 系统保留快捷键黑名单
+/// 系统保留快捷键黑名单（Windows 视角，macOS 上 Ctrl 映射为 Cmd）
 pub fn is_system_reserved(binding: &Keybinding) -> bool {
     let s = binding.to_config_string();
     let reserved = if cfg!(target_os = "macos") {
@@ -235,4 +235,223 @@ pub fn is_system_reserved(binding: &Keybinding) -> bool {
         vec!["Ctrl+C", "Ctrl+V", "Ctrl+X", "Ctrl+Z", "Ctrl+A", "Alt+F4"]
     };
     reserved.contains(&s.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== Keybinding::parse 解析测试 ==========
+
+    #[test]
+    fn should_parse_single_key() {
+        let kb = Keybinding::parse("F1").unwrap();
+        assert!(!kb.ctrl);
+        assert!(!kb.shift);
+        assert!(!kb.alt);
+        assert_eq!(kb.key, "F1");
+        assert!(!kb.double);
+    }
+
+    #[test]
+    fn should_parse_modifier_plus_key() {
+        let kb = Keybinding::parse("Ctrl+Shift+S").unwrap();
+        assert!(kb.ctrl);
+        assert!(kb.shift);
+        assert!(!kb.alt);
+        assert_eq!(kb.key, "KeyS");
+        assert!(!kb.double);
+    }
+
+    #[test]
+    fn should_parse_double_click_combo() {
+        let kb = Keybinding::parse("Ctrl+C,Ctrl+C").unwrap();
+        assert!(kb.ctrl);
+        assert!(!kb.shift);
+        assert_eq!(kb.key, "KeyC");
+        assert!(kb.double);
+    }
+
+    #[test]
+    fn should_parse_alt_modifier() {
+        let kb = Keybinding::parse("Alt+F4").unwrap();
+        assert!(!kb.ctrl);
+        assert!(!kb.shift);
+        assert!(kb.alt);
+        assert_eq!(kb.key, "F4");
+    }
+
+    #[test]
+    fn should_parse_number_key() {
+        let kb = Keybinding::parse("Ctrl+Shift+1").unwrap();
+        assert!(kb.ctrl);
+        assert!(kb.shift);
+        assert_eq!(kb.key, "Num1");
+    }
+
+    #[test]
+    fn should_fail_on_empty_string() {
+        assert!(Keybinding::parse("").is_err());
+    }
+
+    #[test]
+    fn should_fail_on_only_modifiers() {
+        assert!(Keybinding::parse("Ctrl+Shift").is_err());
+    }
+
+    #[test]
+    fn should_fail_on_invalid_key() {
+        assert!(Keybinding::parse("Ctrl+XYZ123").is_err());
+    }
+
+    #[test]
+    fn should_trim_whitespace() {
+        let kb = Keybinding::parse("  F3  ").unwrap();
+        assert_eq!(kb.key, "F3");
+    }
+
+    // ========== to_config_string 序列化测试 ==========
+
+    #[test]
+    fn should_serialize_single_key() {
+        let kb = Keybinding::parse("F1").unwrap();
+        assert_eq!(kb.to_config_string(), "F1");
+    }
+
+    #[test]
+    fn should_serialize_combo_key() {
+        let kb = Keybinding::parse("Ctrl+Shift+S").unwrap();
+        assert_eq!(kb.to_config_string(), "Ctrl+Shift+S");
+    }
+
+    #[test]
+    fn should_serialize_double_click() {
+        let kb = Keybinding::parse("Ctrl+C,Ctrl+C").unwrap();
+        assert_eq!(kb.to_config_string(), "Ctrl+C,Ctrl+C");
+    }
+
+    #[test]
+    fn should_roundtrip_parse_and_serialize() {
+        let cases = vec!["F1", "F12", "Ctrl+Shift+1", "Alt+F4", "Ctrl+C,Ctrl+C", "Ctrl+Shift+3"];
+        for input in cases {
+            let kb = Keybinding::parse(input).unwrap();
+            assert_eq!(kb.to_config_string(), input, "roundtrip failed for: {input}");
+        }
+    }
+
+    // ========== normalize_key_name 标准化测试 ==========
+
+    #[test]
+    fn should_normalize_lowercase_letter() {
+        assert_eq!(normalize_key_name("a"), "KeyA");
+        assert_eq!(normalize_key_name("z"), "KeyZ");
+    }
+
+    #[test]
+    fn should_normalize_number() {
+        assert_eq!(normalize_key_name("1"), "Num1");
+        assert_eq!(normalize_key_name("0"), "Num0");
+    }
+
+    #[test]
+    fn should_normalize_fkey_case_insensitive() {
+        assert_eq!(normalize_key_name("f1"), "F1");
+        assert_eq!(normalize_key_name("f12"), "F12");
+    }
+
+    #[test]
+    fn should_pass_through_unknown() {
+        assert_eq!(normalize_key_name("Space"), "Space");
+    }
+
+    // ========== display_key_name 显示名称测试 ==========
+
+    #[test]
+    fn should_display_key_letter() {
+        assert_eq!(display_key_name("KeyA"), "A");
+        assert_eq!(display_key_name("KeyZ"), "Z");
+    }
+
+    #[test]
+    fn should_display_key_number() {
+        assert_eq!(display_key_name("Num0"), "0");
+        assert_eq!(display_key_name("Num9"), "9");
+    }
+
+    #[test]
+    fn should_display_fkey_as_is() {
+        assert_eq!(display_key_name("F1"), "F1");
+        assert_eq!(display_key_name("Space"), "Space");
+    }
+
+    // ========== 冲突检测测试 ==========
+
+    #[test]
+    fn should_detect_no_conflict() {
+        let mut map = HashMap::new();
+        map.insert("snap".to_string(), Keybinding::parse("F1").unwrap());
+        map.insert("gif".to_string(), Keybinding::parse("F3").unwrap());
+        let conflicts = detect_conflicts(&map);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn should_detect_conflict_same_key() {
+        let mut map = HashMap::new();
+        map.insert("snap".to_string(), Keybinding::parse("F1").unwrap());
+        map.insert("gif".to_string(), Keybinding::parse("F1").unwrap());
+        let conflicts = detect_conflicts(&map);
+        assert_eq!(conflicts.len(), 1);
+    }
+
+    // ========== 系统保留键测试 ==========
+
+    #[test]
+    fn should_detect_ctrl_c_as_reserved() {
+        let kb = Keybinding::parse("Ctrl+C").unwrap();
+        assert!(is_system_reserved(&kb));
+    }
+
+    #[test]
+    fn should_not_detect_f1_as_reserved() {
+        let kb = Keybinding::parse("F1").unwrap();
+        assert!(!is_system_reserved(&kb));
+    }
+
+    #[test]
+    fn should_detect_ctrl_v_as_reserved() {
+        let kb = Keybinding::parse("Ctrl+V").unwrap();
+        assert!(is_system_reserved(&kb));
+    }
+
+    // ========== 平台匹配测试（仅 Windows/Linux） ==========
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn should_match_rdev_f1() {
+        let kb = Keybinding::parse("F1").unwrap();
+        assert!(kb.matches_rdev("F1", false, false, false));
+        assert!(!kb.matches_rdev("F1", true, false, false));  // Ctrl 按下时不匹配
+        assert!(!kb.matches_rdev("F2", false, false, false));  // 不同键不匹配
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn should_match_rdev_combo() {
+        let kb = Keybinding::parse("Ctrl+Shift+S").unwrap();
+        assert!(kb.matches_rdev("KeyS", true, true, false));
+        assert!(!kb.matches_rdev("KeyS", true, false, false));  // 缺 Shift
+        assert!(!kb.matches_rdev("KeyA", true, true, false));    // 不同键
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn should_convert_rdev_key_to_name() {
+        use rdev::Key;
+        assert_eq!(rdev_key_to_name(&Key::F1), Some("F1".to_string()));
+        assert_eq!(rdev_key_to_name(&Key::KeyA), Some("KeyA".to_string()));
+        assert_eq!(rdev_key_to_name(&Key::Num0), Some("Num0".to_string()));
+        assert_eq!(rdev_key_to_name(&Key::Space), Some("Space".to_string()));
+        assert_eq!(rdev_key_to_name(&Key::Return), Some("Enter".to_string()));
+    }
 }

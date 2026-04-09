@@ -7,6 +7,13 @@ use crate::gif::frame::RecordingSession;
 use crate::output::save;
 use crate::wal::logger::WalLogger;
 
+const RECORD_BAR_WIDTH: f64 = 300.0;
+const RECORD_BAR_HEIGHT: f64 = 44.0;
+const RECORD_BAR_OFFSET_Y: f64 = 6.0;
+const WINDOW_CLOSE_DELAY_MS: u64 = 50;
+const OVERLAY_HIDE_DELAY_MS: u64 = 50;
+const OVERLAY_SETTLE_DELAY_MS: u64 = 150;
+
 pub struct RecordingState {
     pub session: Mutex<Option<RecordingSession>>,
 }
@@ -53,15 +60,15 @@ pub fn gif_start(
     // 独立线程：隐藏 overlay → 打开录制控制条 + 区域指示框
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(OVERLAY_HIDE_DELAY_MS));
         hide_overlay(&app_clone);
-        std::thread::sleep(std::time::Duration::from_millis(150));
+        std::thread::sleep(std::time::Duration::from_millis(OVERLAY_SETTLE_DELAY_MS));
 
         // 录制控制条——定位在录制区域右下角
-        let bar_w = 300.0;
-        let bar_h = 44.0;
+        let bar_w = RECORD_BAR_WIDTH;
+        let bar_h = RECORD_BAR_HEIGHT;
         let bar_x = (log_x as f64 + log_w as f64) - bar_w;
-        let bar_y = log_y as f64 + log_h as f64 + 6.0;
+        let bar_y = log_y as f64 + log_h as f64 + RECORD_BAR_OFFSET_Y;
         let _ = WebviewWindowBuilder::new(
             &app_clone, "record-bar",
             WebviewUrl::App("index.html?view=record-bar".into()),
@@ -126,7 +133,7 @@ pub fn gif_stop(app: AppHandle, recording: State<'_, RecordingState>) -> Result<
     // 独立线程关闭录制相关窗口
     let app_clone = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(WINDOW_CLOSE_DELAY_MS));
         close_floating_windows(&app_clone);
     });
 
@@ -145,7 +152,7 @@ pub fn open_gif_overlay(app: &AppHandle) -> Result<(), String> {
     // 复用 show_overlay 处理 macOS/Windows 差异
     crate::commands::snap_cmd::open_overlay_window(app)?;
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(std::time::Duration::from_millis(OVERLAY_HIDE_DELAY_MS));
     let _ = app.emit("overlay-mode", "gif-overlay");
 
     Ok(())
