@@ -46,12 +46,14 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let sep3 = PredefinedMenuItem::separator(app)?;
 
+    let about_item = MenuItem::with_id(app, "about", "关于 sip-cc", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[
         &snap_item, &gif_item, &sep1,
         &dir_submenu, &sep2,
         &open_config, &sep3,
+        &about_item,
         &quit_item,
     ])?;
 
@@ -126,6 +128,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("TRAY", &format!("打开配置文件: {}", config_path.to_string_lossy()));
             let _ = open::that(&config_path);
         }
+        "about" => {
+            show_about();
+        }
         "quit" => {
             wal.info("APP", "应用退出");
             for label in &["overlay", "record-bar", "record-region"] {
@@ -138,6 +143,34 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         }
         _ => {}
     }
+}
+
+/// 显示关于对话框
+fn show_about() {
+    let version = env!("CARGO_PKG_VERSION");
+    let msg = format!(
+        "sip-cc v{version}\n\
+         轻量跨平台截屏 + GIF 录制工具\n\
+         \n\
+         作者: codeYang\n\
+         GitHub: github.com/1207575273/sip-cc\n\
+         \n\
+         欢迎 Star 支持！"
+    );
+
+    std::thread::spawn(move || {
+        let result = rfd::MessageDialog::new()
+            .set_title("关于 sip-cc")
+            .set_description(&msg)
+            .set_level(rfd::MessageLevel::Info)
+            .set_buttons(rfd::MessageButtons::OkCustom("打开 GitHub".to_string()))
+            .show();
+
+        // 用户点了"打开 GitHub"
+        if result == rfd::MessageDialogResult::Custom("打开 GitHub".to_string()) {
+            let _ = open::that("https://github.com/1207575273/sip-cc");
+        }
+    });
 }
 
 /// 弹出文件夹选择对话框，设置自定义保存目录
