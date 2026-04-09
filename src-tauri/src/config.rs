@@ -11,6 +11,32 @@ pub enum SaveDir {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotkeyConfig {
+    pub snap: String,
+    pub gif: String,
+    pub force_quit: String,
+}
+
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        // 平台感知默认值
+        if cfg!(target_os = "macos") {
+            Self {
+                snap: "Ctrl+Shift+1".to_string(),     // macOS 上 Ctrl 映射为 Cmd
+                gif: "Ctrl+Shift+3".to_string(),
+                force_quit: "Ctrl+C,Ctrl+C".to_string(),
+            }
+        } else {
+            Self {
+                snap: "F1".to_string(),
+                gif: "F3".to_string(),
+                force_quit: "Ctrl+C,Ctrl+C".to_string(),
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// 保存目录类型：desktop / custom
     pub save_dir: SaveDir,
@@ -20,6 +46,9 @@ pub struct AppConfig {
     pub gif_fps: u16,
     /// GIF 最大录制时长（秒）
     pub gif_max_duration_secs: u64,
+    /// 快捷键配置
+    #[serde(default)]
+    pub hotkeys: HotkeyConfig,
 }
 
 impl Default for AppConfig {
@@ -29,6 +58,7 @@ impl Default for AppConfig {
             custom_save_dir: None,
             gif_fps: 10,
             gif_max_duration_secs: 180,
+            hotkeys: HotkeyConfig::default(),
         }
     }
 }

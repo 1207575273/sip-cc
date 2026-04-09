@@ -4768,6 +4768,7 @@ dependencies = [
  "dirs",
  "gif",
  "image",
+ "once_cell",
  "open",
  "rdev",
  "rfd",
