@@ -7,11 +7,11 @@ use tauri::{
 use crate::config::{ConfigManager, SaveDir};
 use crate::wal::logger::WalLogger;
 
-pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+/// 构建托盘菜单（从当前配置读取快捷键和保存目录）
+fn build_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let config_manager = app.state::<ConfigManager>();
     let config = config_manager.config.lock().unwrap().clone();
 
-    // 从配置读取快捷键显示
     let snap_key = &config.hotkeys.snap;
     let gif_key = &config.hotkeys.gif;
     let snap_item = MenuItem::with_id(app, "snap", &format!("截屏\t{snap_key}"), true, None::<&str>)?;
@@ -19,7 +19,6 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let sep1 = PredefinedMenuItem::separator(app)?;
 
-    // 保存目录子菜单：显示当前自定义路径（如有）
     let dir_desktop = CheckMenuItem::with_id(
         app, "dir_desktop", "桌面", true,
         config.save_dir == SaveDir::Desktop, None::<&str>,
@@ -55,7 +54,14 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         &quit_item,
     ])?;
 
-    TrayIconBuilder::new()
+    Ok(menu)
+}
+
+/// 首次创建托盘图标 + 菜单
+pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let menu = build_menu(app)?;
+
+    TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -65,6 +71,16 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .build(app)?;
 
     Ok(())
+}
+
+/// 刷新托盘菜单（快捷键/保存目录变更后调用，更新菜单文字）
+pub fn refresh_tray_menu(app: &AppHandle) {
+    if let Ok(menu) = build_menu(app) {
+        // 获取已有的 tray icon 并替换菜单
+        if let Some(tray) = app.tray_by_id("main") {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
 }
 
 /// 缩短路径显示：只保留最后两级目录
@@ -99,9 +115,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             drop(config);
             let _ = config_manager.save();
             wal.info("CONFIG", "配置变更 | key=save_dir | new=Desktop");
+            refresh_tray_menu(app);
         }
         "dir_custom" => {
-            // 已有自定义目录时，点击直接切换过去
             let has_custom = {
                 let config = config_manager.config.lock().unwrap();
                 config.custom_save_dir.is_some()
@@ -112,8 +128,8 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 drop(config);
                 let _ = config_manager.save();
                 wal.info("CONFIG", "配置变更 | key=save_dir | new=Custom");
+                refresh_tray_menu(app);
             } else {
-                // 没有自定义目录，弹出选择对话框
                 pick_custom_dir(app);
             }
         }
@@ -124,7 +140,6 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             open_hotkey_settings(app);
         }
         "open_config" => {
-            // 用系统默认编辑器打开配置文件
             let config_path = ConfigManager::base_dir().join("config.json");
             wal.info("TRAY", &format!("打开配置文件: {}", config_path.to_string_lossy()));
             let _ = open::that(&config_path);
@@ -146,7 +161,6 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-/// 打开快捷键设置窗口
 fn open_hotkey_settings(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("hotkey-settings") {
         let _ = win.set_focus();
@@ -165,9 +179,7 @@ fn open_hotkey_settings(app: &AppHandle) {
     .build();
 }
 
-/// 打开关于窗口（WebView 小窗口，支持可点击的超链接）
 fn show_about(app: &AppHandle) {
-    // 如果已经打开了就聚焦
     if let Some(win) = app.get_webview_window("about") {
         let _ = win.set_focus();
         return;
@@ -185,7 +197,6 @@ fn show_about(app: &AppHandle) {
     .build();
 }
 
-/// 弹出文件夹选择对话框，设置自定义保存目录
 fn pick_custom_dir(app: &AppHandle) {
     let app_clone = app.clone();
     std::thread::spawn(move || {
@@ -201,6 +212,7 @@ fn pick_custom_dir(app: &AppHandle) {
             let _ = config_manager.save();
 
             wal.info("CONFIG", &format!("配置变更 | key=custom_save_dir | new={folder_str}"));
+            refresh_tray_menu(&app_clone);
         }
     });
 }

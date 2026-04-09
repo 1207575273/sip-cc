@@ -26,9 +26,14 @@ export function mountAbout(container: HTMLElement): void {
 
   // 关闭按钮
   container.querySelector("#btn-close")!.addEventListener("click", async () => {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const win = getCurrentWindow();
-    await win.close();
+    try {
+      await invoke("close_window", { label: "about" });
+    } catch (_) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().close();
+      } catch (__) {}
+    }
   });
 }
 

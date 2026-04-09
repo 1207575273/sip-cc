@@ -44,6 +44,7 @@ pub fn run() {
             commands::gif_cmd::gif_resume,
             commands::gif_cmd::gif_stop,
             commands::open_url,
+            commands::close_window,
             commands::hotkey_cmd::get_hotkeys,
             commands::hotkey_cmd::set_hotkeys,
             commands::hotkey_cmd::reload_hotkeys,

@@ -31,6 +31,13 @@ pub fn set_hotkeys(app: AppHandle, hotkeys: HotkeyConfig) -> Result<(), String> 
     // 热重载绑定
     crate::hotkey::register::reload_bindings(&hotkeys);
 
+    // 刷新托盘菜单（异步，避免阻塞 IPC 命令返回）
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        crate::tray::refresh_tray_menu(&app_clone);
+    });
+
     let wal = app.state::<WalLogger>();
     wal.info(
         "CONFIG",
