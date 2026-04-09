@@ -11,12 +11,9 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let config_manager = app.state::<ConfigManager>();
     let config = config_manager.config.lock().unwrap().clone();
 
-    // macOS 快捷键是 Cmd+Shift+1/3，Windows/Linux 是 F1/F3
-    let (snap_key, gif_key) = if cfg!(target_os = "macos") {
-        ("⌘⇧1", "⌘⇧3")
-    } else {
-        ("F1", "F3")
-    };
+    // 从配置读取快捷键显示
+    let snap_key = &config.hotkeys.snap;
+    let gif_key = &config.hotkeys.gif;
     let snap_item = MenuItem::with_id(app, "snap", &format!("截屏\t{snap_key}"), true, None::<&str>)?;
     let gif_item = MenuItem::with_id(app, "gif", &format!("录制 GIF\t{gif_key}"), true, None::<&str>)?;
 
@@ -42,6 +39,7 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let sep2 = PredefinedMenuItem::separator(app)?;
 
+    let hotkey_settings = MenuItem::with_id(app, "hotkey_settings", "快捷键设置", true, None::<&str>)?;
     let open_config = MenuItem::with_id(app, "open_config", "打开配置文件", true, None::<&str>)?;
 
     let sep3 = PredefinedMenuItem::separator(app)?;
@@ -52,7 +50,7 @@ pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[
         &snap_item, &gif_item, &sep1,
         &dir_submenu, &sep2,
-        &open_config, &sep3,
+        &hotkey_settings, &open_config, &sep3,
         &about_item,
         &quit_item,
     ])?;
@@ -122,6 +120,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "dir_change" => {
             pick_custom_dir(app);
         }
+        "hotkey_settings" => {
+            open_hotkey_settings(app);
+        }
         "open_config" => {
             // 用系统默认编辑器打开配置文件
             let config_path = ConfigManager::base_dir().join("config.json");
@@ -129,7 +130,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let _ = open::that(&config_path);
         }
         "about" => {
-            show_about();
+            show_about(app);
         }
         "quit" => {
             wal.info("APP", "应用退出");
@@ -145,32 +146,43 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
-/// 显示关于对话框
-fn show_about() {
-    let version = env!("CARGO_PKG_VERSION");
-    let msg = format!(
-        "sip-cc v{version}\n\
-         轻量跨平台截屏 + GIF 录制工具\n\
-         \n\
-         作者: codeYang\n\
-         GitHub: github.com/1207575273/sip-cc\n\
-         \n\
-         欢迎 Star 支持！"
-    );
+/// 打开快捷键设置窗口
+fn open_hotkey_settings(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("hotkey-settings") {
+        let _ = win.set_focus();
+        return;
+    }
 
-    std::thread::spawn(move || {
-        let result = rfd::MessageDialog::new()
-            .set_title("关于 sip-cc")
-            .set_description(&msg)
-            .set_level(rfd::MessageLevel::Info)
-            .set_buttons(rfd::MessageButtons::OkCustom("打开 GitHub".to_string()))
-            .show();
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let _ = WebviewWindowBuilder::new(
+        app, "hotkey-settings",
+        WebviewUrl::App("index.html?view=hotkey-settings".into()),
+    )
+    .title("快捷键设置")
+    .inner_size(400.0, 340.0)
+    .resizable(false)
+    .center()
+    .build();
+}
 
-        // 用户点了"打开 GitHub"
-        if result == rfd::MessageDialogResult::Custom("打开 GitHub".to_string()) {
-            let _ = open::that("https://github.com/1207575273/sip-cc");
-        }
-    });
+/// 打开关于窗口（WebView 小窗口，支持可点击的超链接）
+fn show_about(app: &AppHandle) {
+    // 如果已经打开了就聚焦
+    if let Some(win) = app.get_webview_window("about") {
+        let _ = win.set_focus();
+        return;
+    }
+
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let _ = WebviewWindowBuilder::new(
+        app, "about",
+        WebviewUrl::App("index.html?view=about".into()),
+    )
+    .title("关于 sip-cc")
+    .inner_size(300.0, 360.0)
+    .resizable(false)
+    .center()
+    .build();
 }
 
 /// 弹出文件夹选择对话框，设置自定义保存目录

@@ -1,7 +1,12 @@
+use std::collections::HashMap;
 use std::sync::mpsc;
+use std::sync::RwLock;
 use std::thread;
+
+use once_cell::sync::Lazy;
 use tauri::{AppHandle, Manager};
 
+use super::keybinding::Keybinding;
 use crate::wal::logger::WalLogger;
 
 #[derive(Debug)]
@@ -11,19 +16,66 @@ pub enum HotkeyAction {
     ForceQuit,
 }
 
+/// 全局快捷键绑定映射：action_name -> Keybinding
+static BINDINGS: Lazy<RwLock<HashMap<String, Keybinding>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// 从配置加载绑定到全局状态
+pub fn load_bindings(hotkeys: &crate::config::HotkeyConfig) {
+    let defaults = crate::config::HotkeyConfig::default();
+    let mut map = HashMap::new();
+
+    let snap = Keybinding::parse(&hotkeys.snap)
+        .unwrap_or_else(|_| Keybinding::parse(&defaults.snap).unwrap());
+    map.insert("snap".to_string(), snap);
+
+    let gif = Keybinding::parse(&hotkeys.gif)
+        .unwrap_or_else(|_| Keybinding::parse(&defaults.gif).unwrap());
+    map.insert("gif".to_string(), gif);
+
+    let force_quit = Keybinding::parse(&hotkeys.force_quit)
+        .unwrap_or_else(|_| Keybinding::parse(&defaults.force_quit).unwrap());
+    map.insert("force_quit".to_string(), force_quit);
+
+    let mut bindings = BINDINGS.write().unwrap();
+    *bindings = map;
+}
+
+/// 热重载：重新从配置加载快捷键绑定
+pub fn reload_bindings(hotkeys: &crate::config::HotkeyConfig) {
+    load_bindings(hotkeys);
+}
+
+/// action 名称转枚举
+fn action_from_name(name: &str) -> HotkeyAction {
+    match name {
+        "snap" => HotkeyAction::Snap,
+        "gif" => HotkeyAction::GifRecord,
+        "force_quit" => HotkeyAction::ForceQuit,
+        _ => HotkeyAction::Snap,
+    }
+}
+
 /// 启动全局快捷键监听。
 ///
-/// Windows/Linux: F1 截屏，F3 录制 GIF，双击 Ctrl+C 强制退出（使用 rdev）
-/// macOS: Cmd+Shift+1 截屏，Cmd+Shift+3 录制 GIF，双击 Cmd+C 强制退出（使用原生 CGEventTap）
+/// 初始化时从 ConfigManager 读取 hotkeys 配置并解析为 Keybinding，
+/// 存入全局 BINDINGS。监听线程每次按键事件时读取最新绑定进行匹配。
 ///
-/// macOS 不用 rdev 的原因：rdev::listen 内部调用 Keyboard::string_from_code → TSMGetInputSourceProperty，
-/// 该 API 在 macOS 15+ 要求主线程执行（dispatch_assert_queue 断言），在子线程调用直接崩溃 (SIGTRAP)。
-/// 改用 CGEventTap 直接读取 keycode，完全绕开 HIToolbox 的字符映射。
+/// Windows/Linux: 使用 rdev
+/// macOS: 使用原生 CGEventTap（避免 macOS 15+ TSM 崩溃）
 pub fn start_hotkey_listener(app: AppHandle) {
     #[cfg(target_os = "macos")]
     {
         prompt_accessibility_permission();
     }
+
+    // 从配置加载快捷键绑定
+    let config_manager = app.state::<crate::config::ConfigManager>();
+    let hotkeys = {
+        let config = config_manager.config.lock().unwrap();
+        config.hotkeys.clone()
+    };
+    load_bindings(&hotkeys);
 
     let (tx, rx) = mpsc::channel::<HotkeyAction>();
 
@@ -65,42 +117,96 @@ pub fn start_hotkey_listener(app: AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
     use rdev::{listen, Event, EventType, Key};
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::time::Instant;
 
-    thread::spawn(move || {
-        let ctrl_held: Cell<bool> = Cell::new(false);
-        let last_ctrl_c: Cell<Option<Instant>> = Cell::new(None);
+    use super::keybinding::rdev_key_to_name;
 
-        listen(move |event: Event| {
-            match event.event_type {
-                EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
-                    ctrl_held.set(true);
-                }
-                EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
-                    ctrl_held.set(false);
-                }
-                EventType::KeyPress(Key::F1) => {
-                    let _ = tx.send(HotkeyAction::Snap);
-                }
-                EventType::KeyPress(Key::F3) => {
-                    let _ = tx.send(HotkeyAction::GifRecord);
-                }
-                EventType::KeyPress(Key::KeyC) if ctrl_held.get() => {
-                    let now = Instant::now();
-                    if let Some(last) = last_ctrl_c.get() {
-                        if now.duration_since(last).as_millis() < 500 {
-                            let _ = tx.send(HotkeyAction::ForceQuit);
-                            last_ctrl_c.set(None);
-                            return;
+    thread::spawn(move || {
+        let mut retries = 0u32;
+        const MAX_RETRIES: u32 = 3;
+
+        loop {
+            let tx_clone = tx.clone();
+            let result = std::panic::catch_unwind(move || {
+                let ctrl_held: Cell<bool> = Cell::new(false);
+                let shift_held: Cell<bool> = Cell::new(false);
+                let alt_held: Cell<bool> = Cell::new(false);
+                let last_double: RefCell<Option<(String, Instant)>> = RefCell::new(None);
+
+                listen(move |event: Event| {
+                    match event.event_type {
+                        EventType::KeyPress(Key::ControlLeft)
+                        | EventType::KeyPress(Key::ControlRight) => ctrl_held.set(true),
+                        EventType::KeyRelease(Key::ControlLeft)
+                        | EventType::KeyRelease(Key::ControlRight) => ctrl_held.set(false),
+                        EventType::KeyPress(Key::ShiftLeft)
+                        | EventType::KeyPress(Key::ShiftRight) => shift_held.set(true),
+                        EventType::KeyRelease(Key::ShiftLeft)
+                        | EventType::KeyRelease(Key::ShiftRight) => shift_held.set(false),
+                        EventType::KeyPress(Key::Alt) | EventType::KeyPress(Key::AltGr) => {
+                            alt_held.set(true)
                         }
+                        EventType::KeyRelease(Key::Alt) | EventType::KeyRelease(Key::AltGr) => {
+                            alt_held.set(false)
+                        }
+                        EventType::KeyPress(ref key) => {
+                            if let Some(key_name) = rdev_key_to_name(key) {
+                                let bindings = BINDINGS.read().unwrap();
+                                for (action, binding) in bindings.iter() {
+                                    if binding.matches_rdev(
+                                        &key_name,
+                                        ctrl_held.get(),
+                                        shift_held.get(),
+                                        alt_held.get(),
+                                    ) {
+                                        if binding.double {
+                                            // 连击检测：500ms 内同一 action 连续触发两次
+                                            let now = Instant::now();
+                                            let should_fire = {
+                                                let guard = last_double.borrow();
+                                                if let Some((ref prev_action, prev_time)) = *guard
+                                                {
+                                                    prev_action == action
+                                                        && now
+                                                            .duration_since(prev_time)
+                                                            .as_millis()
+                                                            < 500
+                                                } else {
+                                                    false
+                                                }
+                                            };
+                                            if should_fire {
+                                                let _ = tx_clone.send(action_from_name(action));
+                                                *last_double.borrow_mut() = None;
+                                                return;
+                                            }
+                                            *last_double.borrow_mut() =
+                                                Some((action.clone(), now));
+                                        } else {
+                                            let _ = tx_clone.send(action_from_name(action));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    last_ctrl_c.set(Some(now));
-                }
-                _ => {}
+                })
+                .ok();
+            });
+
+            if result.is_ok() {
+                break;
             }
-        })
-        .expect("快捷键监听启动失败");
+            retries += 1;
+            eprintln!("[sip-cc] 快捷键监听崩溃，第 {retries} 次重试");
+            if retries >= MAX_RETRIES {
+                eprintln!("[sip-cc] 快捷键监听重试耗尽，请通过托盘菜单操作");
+                break;
+            }
+            thread::sleep(std::time::Duration::from_secs(3));
+        }
     });
 }
 
@@ -112,75 +218,95 @@ fn start_macos_listener(tx: mpsc::Sender<HotkeyAction>) {
     use std::sync::Mutex;
     use std::time::Instant;
 
+    use super::keybinding::cg_keycode_to_name;
+
     thread::spawn(move || {
-        use core_graphics::event::*;
-        use core_foundation::runloop::*;
+        let mut retries = 0u32;
+        const MAX_RETRIES: u32 = 3;
 
-        // macOS keycodes（硬件扫描码）
-        const KC_1: i64 = 18;  // 数字 1
-        const KC_3: i64 = 20;  // 数字 3
-        const KC_C: i64 = 8;   // 字母 C
+        loop {
+            let tx_clone = tx.clone();
+            let result = std::panic::catch_unwind(move || {
+                use core_foundation::runloop::*;
+                use core_graphics::event::*;
 
-        let last_cmd_c: Mutex<Option<Instant>> = Mutex::new(None);
-        let tx = Mutex::new(tx);
+                let last_double: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+                let tx = Mutex::new(tx_clone);
 
-        let tap = CGEventTap::new(
-            CGEventTapLocation::Session,
-            CGEventTapPlacement::HeadInsertEventTap,
-            CGEventTapOptions::Default,
-            vec![CGEventType::KeyDown],
-            move |_proxy, _event_type, event| {
-                let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
-                let flags = event.get_flags();
-                let cmd = flags.contains(CGEventFlags::CGEventFlagCommand);
-                let shift = flags.contains(CGEventFlags::CGEventFlagShift);
+                let tap = CGEventTap::new(
+                    CGEventTapLocation::Session,
+                    CGEventTapPlacement::HeadInsertEventTap,
+                    CGEventTapOptions::Default,
+                    vec![CGEventType::KeyDown],
+                    move |_proxy, _event_type, event| {
+                        let keycode =
+                            event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+                        let flags = event.get_flags();
+                        let cmd = flags.contains(CGEventFlags::CGEventFlagCommand);
+                        let shift = flags.contains(CGEventFlags::CGEventFlagShift);
+                        let alt = flags.contains(CGEventFlags::CGEventFlagAlternate);
 
-                let tx = tx.lock().unwrap();
+                        if let Some(key_name) = cg_keycode_to_name(keycode) {
+                            let bindings = BINDINGS.read().unwrap();
+                            let tx = tx.lock().unwrap();
 
-                // Cmd+Shift+1 → 截屏
-                if cmd && shift && keycode == KC_1 {
-                    let _ = tx.send(HotkeyAction::Snap);
-                    return CallbackResult::Drop;
-                }
-                // Cmd+Shift+3 → GIF 录制
-                if cmd && shift && keycode == KC_3 {
-                    let _ = tx.send(HotkeyAction::GifRecord);
-                    return CallbackResult::Drop;
-                }
-                // Cmd+C 双击 → 强制退出
-                if cmd && keycode == KC_C {
-                    let now = Instant::now();
-                    let mut guard = last_cmd_c.lock().unwrap();
-                    if let Some(last) = *guard {
-                        if now.duration_since(last).as_millis() < 500 {
-                            let _ = tx.send(HotkeyAction::ForceQuit);
-                            *guard = None;
-                            return CallbackResult::Keep;
+                            for (action, binding) in bindings.iter() {
+                                if binding.matches_cg(&key_name, cmd, shift, alt) {
+                                    if binding.double {
+                                        let now = Instant::now();
+                                        let mut guard = last_double.lock().unwrap();
+                                        if let Some((ref prev_action, prev_time)) = *guard {
+                                            if prev_action == action
+                                                && now.duration_since(prev_time).as_millis() < 500
+                                            {
+                                                let _ = tx.send(action_from_name(action));
+                                                *guard = None;
+                                                return CallbackResult::Keep;
+                                            }
+                                        }
+                                        *guard = Some((action.clone(), now));
+                                    } else {
+                                        let _ = tx.send(action_from_name(action));
+                                        return CallbackResult::Drop;
+                                    }
+                                }
+                            }
                         }
+
+                        CallbackResult::Keep
+                    },
+                );
+
+                match tap {
+                    Ok(tap) => {
+                        let source = tap
+                            .mach_port()
+                            .create_runloop_source(0)
+                            .expect("RunLoop source 创建失败");
+
+                        unsafe {
+                            let run_loop = CFRunLoop::get_current();
+                            run_loop.add_source(&source, kCFRunLoopCommonModes);
+                        }
+                        tap.enable();
+                        CFRunLoop::run_current();
                     }
-                    *guard = Some(now);
+                    Err(()) => {
+                        eprintln!("[sip-cc] CGEventTap 创建失败，需要辅助功能权限");
+                    }
                 }
+            });
 
-                CallbackResult::Keep
-            },
-        );
-
-        match tap {
-            Ok(tap) => {
-                let source = tap.mach_port()
-                    .create_runloop_source(0)
-                    .expect("RunLoop source 创建失败");
-
-                unsafe {
-                    let run_loop = CFRunLoop::get_current();
-                    run_loop.add_source(&source, kCFRunLoopCommonModes);
-                }
-                tap.enable();
-                CFRunLoop::run_current();
+            if result.is_ok() {
+                break;
             }
-            Err(()) => {
-                eprintln!("[sip-cc] CGEventTap 创建失败，需要辅助功能权限");
+            retries += 1;
+            eprintln!("[sip-cc] 快捷键监听崩溃，第 {retries} 次重试");
+            if retries >= MAX_RETRIES {
+                eprintln!("[sip-cc] 快捷键监听重试耗尽，请通过托盘菜单操作");
+                break;
             }
+            thread::sleep(std::time::Duration::from_secs(3));
         }
     });
 }
@@ -199,7 +325,10 @@ fn prompt_accessibility_permission() {
         return trusted as boolean
     "#;
 
-    match Command::new("osascript").args(["-l", "AppleScript", "-e", script]).output() {
+    match Command::new("osascript")
+        .args(["-l", "AppleScript", "-e", script])
+        .output()
+    {
         Ok(output) => {
             let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if result == "true" {

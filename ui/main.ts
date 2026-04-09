@@ -2,6 +2,8 @@ import { mountSnapOverlay } from "./views/SnapOverlay";
 import { mountGifOverlay } from "./views/GifOverlay";
 import { mountRecordBar } from "./views/RecordBar";
 import { mountRecordRegion } from "./views/RecordRegion";
+import { mountAbout } from "./views/About";
+import { mountHotkeySettings } from "./views/HotkeySettings";
 import { listen } from "@tauri-apps/api/event";
 
 const container = document.getElementById("app")!;
@@ -12,6 +14,10 @@ if (view === "record-bar") {
   mountRecordBar(container);
 } else if (view === "record-region") {
   mountRecordRegion(container);
+} else if (view === "about") {
+  mountAbout(container);
+} else if (view === "hotkey-settings") {
+  mountHotkeySettings(container);
 } else {
   setupOverlay();
 }
