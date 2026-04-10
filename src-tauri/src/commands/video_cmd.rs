@@ -80,7 +80,7 @@ pub fn video_start(
         return Err("ffmpeg_not_found".to_string());
     }
 
-    let scale = get_scale_factor();
+    let scale = get_scale_factor(&app);
     let pad = 10.0_f64;
     let phys_x = ((region.x as f64 - pad).max(0.0) * scale) as u32;
     let phys_y = ((region.y as f64 - pad).max(0.0) * scale) as u32;
