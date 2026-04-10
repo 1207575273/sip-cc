@@ -10,7 +10,7 @@ mod video;
 
 use commands::gif_cmd::RecordingState;
 use commands::video_cmd::VideoRecordingState;
-use commands::snap_cmd::ScreenBuffer;
+use commands::snap_cmd::{MacosOverlayCount, ScreenBuffer};
 use config::ConfigManager;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -35,13 +35,17 @@ pub fn run() {
             session: Mutex::new(None),
         })
         .manage(VideoRecordingState::new())
+        .manage(MacosOverlayCount(Mutex::new(0)))
         .manage(ScreenBuffer {
             image: Mutex::new(None),
+            bounds: Mutex::new(None),
+            macos_monitors: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             commands::snap_cmd::snap_region,
             commands::snap_cmd::close_overlay,
             commands::snap_cmd::set_overlay_mode,
+            commands::snap_cmd::get_screen_info,
             commands::gif_cmd::gif_start,
             commands::gif_cmd::gif_pause,
             commands::gif_cmd::gif_resume,
@@ -59,30 +63,55 @@ pub fn run() {
             commands::video_cmd::video_resume,
             commands::video_cmd::video_stop,
         ])
-        .setup(|app| {
+        .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             let wal = app.state::<WalLogger>();
             wal.info("APP", "应用启动");
             tray::create_tray(app.handle())?;
             hotkey::register::start_hotkey_listener(app.handle().clone());
 
-            // 预创建 overlay 窗口（隐藏）
-            // macOS 不用 fullscreen（会创建独立 Space 导致黑屏）
-            let mut builder = WebviewWindowBuilder::new(
-                app, "overlay",
-                WebviewUrl::App("index.html?view=snap-overlay".into()),
-            )
-            .title("sip-cc overlay")
-            .transparent(true)
-            .decorations(false)
-            .visible(false);
-
-            if !cfg!(target_os = "macos") {
-                builder = builder.fullscreen(true);
+            if cfg!(target_os = "macos") {
+                let monitors: Vec<_> = app
+                    .available_monitors()
+                    .map_err(|e| format!("{e}"))?
+                    .into_iter()
+                    .collect();
+                for (i, _) in monitors.iter().enumerate() {
+                    let label = format!("overlay-{}", i);
+                    let url = format!("index.html?view=snap-overlay&monitor={}", i);
+                    WebviewWindowBuilder::new(
+                        app,
+                        &label,
+                        WebviewUrl::App(url.into()),
+                    )
+                    .title("sip-cc overlay")
+                    .transparent(true)
+                    .decorations(false)
+                    .visible(false)
+                    .build()?;
+                }
+                if let Some(st) = app.try_state::<MacosOverlayCount>() {
+                    if let Ok(mut n) = st.0.lock() {
+                        *n = monitors.len();
+                    }
+                }
+                wal.info(
+                    "APP",
+                    &format!("macOS: {} 个 overlay 窗口预创建完成", monitors.len()),
+                );
+            } else {
+                WebviewWindowBuilder::new(
+                    app,
+                    "overlay",
+                    WebviewUrl::App("index.html?view=snap-overlay".into()),
+                )
+                .title("sip-cc overlay")
+                .transparent(true)
+                .decorations(false)
+                .visible(false)
+                .build()?;
+                wal.info("APP", "overlay 窗口预创建完成");
             }
 
-            let _overlay = builder.build()?;
-
-            wal.info("APP", "overlay 窗口预创建完成");
             Ok(())
         })
         .build(tauri::generate_context!())

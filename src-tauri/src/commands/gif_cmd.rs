@@ -1,7 +1,10 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::commands::snap_cmd::{close_floating_windows, get_scale_factor, hide_overlay, Region};
+use crate::commands::snap_cmd::{
+    close_floating_windows, get_virtual_bounds_for_recording, hide_overlay, scale_for_overlay,
+    warn_if_macos_missing_monitor_index, Region,
+};
 use crate::config::ConfigManager;
 use crate::gif::frame::RecordingSession;
 use crate::output::save;
@@ -26,11 +29,13 @@ pub fn gif_start(
     app: AppHandle, region: Region, recording: State<'_, RecordingState>,
 ) -> Result<(), String> {
     let wal = app.state::<WalLogger>();
+    warn_if_macos_missing_monitor_index(&app, &wal, "GIF", region.monitor_index);
 
-    let scale = get_scale_factor(&app);
+    let scale = scale_for_overlay(&app, region.monitor_index);
     let pad = 10.0_f64;
-    let phys_x = ((region.x as f64 - pad).max(0.0) * scale) as u32;
-    let phys_y = ((region.y as f64 - pad).max(0.0) * scale) as u32;
+    let vbounds = get_virtual_bounds_for_recording(&app, region.monitor_index)?;
+    let phys_x = ((region.x as f64 - pad).max(0.0) * scale) as i32 + vbounds.x;
+    let phys_y = ((region.y as f64 - pad).max(0.0) * scale) as i32 + vbounds.y;
     let phys_w = ((region.width as f64 + pad * 2.0) * scale) as u32;
     let phys_h = ((region.height as f64 + pad * 2.0) * scale) as u32;
 
