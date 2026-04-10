@@ -6,6 +6,94 @@ html, body {
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
+/* ========== 长截图：独立浮动条（可点完成/取消，主 overlay 穿透时专用） ========== */
+
+#long-snap-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  background: rgba(22, 22, 26, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #e8e8e8;
+  font-size: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  white-space: nowrap;
+}
+
+#long-snap-control .lsc-hint {
+  color: #888;
+  font-size: 11px;
+  margin-right: 4px;
+}
+
+#long-snap-control .lsc-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: #eee;
+}
+#long-snap-control .lsc-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+#long-snap-control .lsc-btn-primary {
+  background: #2080e0;
+  color: #fff;
+}
+#long-snap-control .lsc-btn-primary:hover {
+  background: #1a6cc0;
+}
+
+/* ========== 长截图：overlay 内工具栏（与选区工具栏同窗） ========== */
+
+.toolbar-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.long-snap-inline-hint {
+  font-size: 11px;
+  color: #aaccff;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ========== 长截图 Toast（overlay 窗口内） ========== */
+
+.long-snap-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(90vw, 420px);
+  padding: 10px 14px;
+  background: rgba(24, 24, 24, 0.92);
+  color: #e8e8e8;
+  font-size: 12px;
+  line-height: 1.45;
+  border-radius: 8px;
+  z-index: 10000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  white-space: pre-wrap;
+  word-break: break-all;
+  pointer-events: none;
+}
+.long-snap-toast--error {
+  border: 1px solid rgba(255, 80, 80, 0.5);
+  color: #ffb0b0;
+}
+
 /* ========== 截屏/GIF 选区遮罩 ========== */
 
 #snap-canvas, #gif-canvas {
@@ -51,6 +139,20 @@ html, body {
 }
 .toolbar-btn-save:hover {
   background: #1a6cc0;
+}
+
+.toolbar-btn-long {
+  background: rgba(255, 255, 255, 0.12);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.toolbar-btn-long:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.toolbar-btn-long:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .toolbar-btn-exit {

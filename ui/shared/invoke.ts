@@ -13,11 +13,40 @@ export async function callGetScreenInfo(): Promise<MonitorInfo[]> {
   return invoke<MonitorInfo[]>("get_screen_info");
 }
 
+/** 系统级鼠标穿透（长截图滑动下层内容时须为 true；关闭 overlay 时后端会复位） */
+export async function callSetOverlayCursorPassthrough(passthrough: boolean): Promise<void> {
+  return invoke("set_overlay_cursor_passthrough", { passthrough });
+}
+
 export async function callSnap(region: {
   x: number; y: number; width: number; height: number;
   monitor_index?: number;
 }): Promise<string> {
   return invoke<string>("snap_region", { region });
+}
+
+/** 开始手动长截图会话：仅登记选区；首帧由前端取景框就绪后 `callLongSnapAppendFrame`（仅 Windows） */
+export async function callLongSnapStart(region: {
+  x: number; y: number; width: number; height: number;
+  monitor_index?: number;
+}): Promise<void> {
+  return invoke("long_snap_start", { region });
+}
+
+export async function callLongSnapAppendFrame(): Promise<number> {
+  return invoke<number>("long_snap_append_frame");
+}
+
+export async function callLongSnapFinish(): Promise<string> {
+  return invoke<string>("long_snap_finish");
+}
+
+export async function callLongSnapCancel(): Promise<void> {
+  return invoke("long_snap_cancel");
+}
+
+export async function callLongSnapSupported(): Promise<boolean> {
+  return invoke<boolean>("long_snap_supported");
 }
 
 export async function callGifStart(region: {

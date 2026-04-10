@@ -33,7 +33,7 @@ pub fn macos_overlay_window_count(app: &AppHandle) -> usize {
     app.available_monitors().map(|m| m.len()).unwrap_or(0)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Region {
     pub x: i32,
     pub y: i32,
@@ -238,8 +238,33 @@ fn show_overlay_per_monitor(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 鼠标/滚轮是否穿透 overlay 落到下层窗口（CSS pointer-events 无法实现系统级穿透，需用此 API）。
+pub fn set_overlay_cursor_passthrough_inner(app: &AppHandle, passthrough: bool) -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        let n = macos_overlay_window_count(app);
+        for i in 0..n {
+            let label = format!("overlay-{}", i);
+            if let Some(win) = app.get_webview_window(&label) {
+                win.set_ignore_cursor_events(passthrough)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    } else if let Some(win) = app.get_webview_window("overlay") {
+        win.set_ignore_cursor_events(passthrough)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_overlay_cursor_passthrough(app: AppHandle, passthrough: bool) -> Result<(), String> {
+    set_overlay_cursor_passthrough_inner(&app, passthrough)
+}
+
 /// 隐藏 overlay 窗口
 pub fn hide_overlay(app: &AppHandle) {
+    let _ = set_overlay_cursor_passthrough_inner(app, false);
+    crate::commands::long_snap_cmd::reset_long_snap_on_overlay_hide(app);
     if cfg!(target_os = "macos") {
         let n = macos_overlay_window_count(app);
         for i in 0..n {
@@ -257,7 +282,7 @@ pub fn hide_overlay(app: &AppHandle) {
 
 /// 关闭录制相关的浮动窗口
 pub fn close_floating_windows(app: &AppHandle) {
-    for label in &["record-bar", "record-region", "record-info"] {
+    for label in &["record-bar", "record-region", "record-info", "long-snap-control"] {
         if let Some(win) = app.get_webview_window(label) {
             let _ = win.close();
         }

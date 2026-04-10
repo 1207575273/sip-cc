@@ -114,7 +114,7 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 }
                 HotkeyAction::ForceQuit => {
                     wal.info("HOTKEY", "双击强制退出");
-                    for label in &["overlay", "record-bar", "record-region"] {
+                    for label in &["overlay", "record-bar", "record-region", "long-snap-control"] {
                         if let Some(win) = app.get_webview_window(label) {
                             let _ = win.destroy();
                         }
@@ -162,6 +162,9 @@ fn start_rdev_listener(tx: mpsc::Sender<HotkeyAction>) {
                         }
                         EventType::KeyRelease(Key::Alt) | EventType::KeyRelease(Key::AltGr) => {
                             alt_held.set(false)
+                        }
+                        EventType::Wheel { .. } => {
+                            crate::commands::long_snap_cmd::long_snap_wheel_tick();
                         }
                         EventType::KeyPress(ref key) => {
                             if let Some(key_name) = rdev_key_to_name(key) {
