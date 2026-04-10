@@ -11,6 +11,11 @@ pub fn generate_gif_path(save_dir: &PathBuf) -> PathBuf {
     save_dir.join(format!("sip-cc_gif_{timestamp}.gif"))
 }
 
+pub fn generate_video_path(save_dir: &PathBuf) -> PathBuf {
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    save_dir.join(format!("sip-cc_video_{timestamp}.mp4"))
+}
+
 pub fn save_png(pixels: &[u8], width: u32, height: u32, path: &PathBuf) -> Result<(), String> {
     image::save_buffer(path, pixels, width, height, image::ColorType::Rgba8)
         .map_err(|e| format!("保存 PNG 失败: {e}"))
@@ -35,6 +40,14 @@ mod tests {
         let path = generate_gif_path(&dir);
         assert!(path.to_string_lossy().contains("sip-cc_gif_"));
         assert!(path.to_string_lossy().ends_with(".gif"));
+    }
+
+    #[test]
+    fn should_generate_video_path_with_mp4_extension() {
+        let dir = PathBuf::from("/tmp");
+        let path = generate_video_path(&dir);
+        assert!(path.to_string_lossy().contains("sip-cc_video_"));
+        assert!(path.to_string_lossy().ends_with(".mp4"));
     }
 
     #[test]

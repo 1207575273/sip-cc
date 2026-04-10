@@ -23,3 +23,30 @@ export async function callGifResume(): Promise<void> {
 export async function callGifStop(): Promise<string> {
   return invoke<string>("gif_stop");
 }
+
+export async function callCheckFfmpeg(): Promise<boolean> {
+  return invoke<boolean>("check_ffmpeg");
+}
+
+export async function callDownloadFfmpeg(): Promise<string> {
+  return invoke<string>("download_ffmpeg");
+}
+
+export async function callVideoStart(
+  region: { x: number; y: number; width: number; height: number },
+  quality?: { fps: number; crf: number; preset: string },
+): Promise<void> {
+  return invoke("video_start", { region, quality });
+}
+
+export async function callVideoPause(): Promise<void> {
+  return invoke("video_pause");
+}
+
+export async function callVideoResume(): Promise<void> {
+  return invoke("video_resume");
+}
+
+export async function callVideoStop(): Promise<void> {
+  return invoke("video_stop");
+}

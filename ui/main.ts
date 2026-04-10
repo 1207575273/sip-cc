@@ -1,5 +1,7 @@
 import { mountSnapOverlay } from "./views/SnapOverlay";
 import { mountGifOverlay } from "./views/GifOverlay";
+import { mountVideoOverlay } from "./views/VideoOverlay";
+import { mountFfmpegDownload } from "./views/FfmpegDownload";
 import { mountRecordBar } from "./views/RecordBar";
 import { mountRecordRegion } from "./views/RecordRegion";
 import { mountAbout } from "./views/About";
@@ -14,6 +16,8 @@ if (view === "record-bar") {
   mountRecordBar(container);
 } else if (view === "record-region") {
   mountRecordRegion(container);
+} else if (view === "ffmpeg-download") {
+  mountFfmpegDownload(container);
 } else if (view === "about") {
   mountAbout(container);
 } else if (view === "hotkey-settings") {
@@ -51,6 +55,8 @@ function setupOverlay(): void {
       cleanup = mountSnapOverlay(container);
     } else if (mode === "gif-overlay") {
       cleanup = mountGifOverlay(container);
+    } else if (mode === "video-overlay") {
+      cleanup = mountVideoOverlay(container);
     }
   }
 
@@ -63,5 +69,7 @@ function setupOverlay(): void {
     cleanup = mountSnapOverlay(container);
   } else if (view === "gif-overlay") {
     cleanup = mountGifOverlay(container);
+  } else if (view === "video-overlay") {
+    cleanup = mountVideoOverlay(container);
   }
 }

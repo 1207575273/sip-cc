@@ -17,6 +17,7 @@ const RETRY_DELAY_SECS: u64 = 3;
 pub enum HotkeyAction {
     Snap,
     GifRecord,
+    VideoRecord,
     ForceQuit,
 }
 
@@ -37,6 +38,10 @@ pub fn load_bindings(hotkeys: &crate::config::HotkeyConfig) {
         .unwrap_or_else(|_| Keybinding::parse(&defaults.gif).unwrap());
     map.insert("gif".to_string(), gif);
 
+    let video = Keybinding::parse(&hotkeys.video)
+        .unwrap_or_else(|_| Keybinding::parse(&defaults.video).unwrap());
+    map.insert("video".to_string(), video);
+
     let force_quit = Keybinding::parse(&hotkeys.force_quit)
         .unwrap_or_else(|_| Keybinding::parse(&defaults.force_quit).unwrap());
     map.insert("force_quit".to_string(), force_quit);
@@ -55,6 +60,7 @@ fn action_from_name(name: &str) -> HotkeyAction {
     match name {
         "snap" => HotkeyAction::Snap,
         "gif" => HotkeyAction::GifRecord,
+        "video" => HotkeyAction::VideoRecord,
         "force_quit" => HotkeyAction::ForceQuit,
         _ => HotkeyAction::Snap,
     }
@@ -101,6 +107,10 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 HotkeyAction::GifRecord => {
                     wal.info("HOTKEY", "触发 GIF 录制");
                     let _ = crate::commands::gif_cmd::open_gif_overlay(&app);
+                }
+                HotkeyAction::VideoRecord => {
+                    wal.info("HOTKEY", "触发视频录制");
+                    let _ = crate::commands::video_cmd::open_video_overlay(&app);
                 }
                 HotkeyAction::ForceQuit => {
                     wal.info("HOTKEY", "双击强制退出");

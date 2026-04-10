@@ -6,8 +6,10 @@ mod output;
 mod snap;
 mod tray;
 mod wal;
+mod video;
 
 use commands::gif_cmd::RecordingState;
+use commands::video_cmd::VideoRecordingState;
 use commands::snap_cmd::ScreenBuffer;
 use config::ConfigManager;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,6 +34,7 @@ pub fn run() {
         .manage(RecordingState {
             session: Mutex::new(None),
         })
+        .manage(VideoRecordingState::new())
         .manage(ScreenBuffer {
             image: Mutex::new(None),
         })
@@ -49,6 +52,12 @@ pub fn run() {
             commands::hotkey_cmd::set_hotkeys,
             commands::hotkey_cmd::reload_hotkeys,
             commands::hotkey_cmd::get_recording_status,
+            commands::video_cmd::check_ffmpeg,
+            commands::video_cmd::download_ffmpeg,
+            commands::video_cmd::video_start,
+            commands::video_cmd::video_pause,
+            commands::video_cmd::video_resume,
+            commands::video_cmd::video_stop,
         ])
         .setup(|app| {
             let wal = app.state::<WalLogger>();
