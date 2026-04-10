@@ -27,6 +27,7 @@ export function mountVideoOverlay(container: HTMLElement): () => void {
         fps: p.fps,
         crf: p.crf,
         preset: p.preset,
+        label: p.label,
       });
     },
     renderExtra: (slot) => {

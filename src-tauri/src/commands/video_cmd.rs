@@ -17,12 +17,16 @@ const RECORD_BAR_OFFSET_Y: f64 = 6.0;
 const OVERLAY_HIDE_DELAY_MS: u64 = 50;
 const OVERLAY_SETTLE_DELAY_MS: u64 = 150;
 const WINDOW_CLOSE_DELAY_MS: u64 = 50;
+const INFO_WIDTH: f64 = 168.0;
+const INFO_HEIGHT: f64 = 82.0;
+const INFO_MARGIN: f64 = 6.0;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct VideoQuality {
     pub fps: Option<u16>,
     pub crf: Option<u8>,
     pub preset: Option<String>,
+    pub label: Option<String>,
 }
 
 struct ActiveRecording {
@@ -89,6 +93,10 @@ pub fn video_start(
     let log_h = region.height;
 
     let config_manager = app.state::<ConfigManager>();
+    let quality_label = quality
+        .as_ref()
+        .and_then(|q| q.label.clone())
+        .unwrap_or_default();
     let (fps, max_duration, crf, preset) = {
         let config = config_manager.config.lock().unwrap();
         let fps = quality.as_ref().and_then(|q| q.fps).unwrap_or(config.video_fps);
@@ -169,6 +177,31 @@ pub fn video_start(
         if let Ok(region_win) = region_result {
             let _ = region_win.set_ignore_cursor_events(true);
         }
+
+        if (log_w as f64) > INFO_WIDTH + INFO_MARGIN * 2.0 {
+            let info_x = log_x as f64 + log_w as f64 - INFO_WIDTH - INFO_MARGIN;
+            let info_y = log_y as f64 + INFO_MARGIN;
+            let info_url = format!(
+                "index.html?view=record-info&mode=video&w={}&h={}&fps={}&quality={}",
+                log_w, log_h, fps, quality_label
+            );
+            let info_result: Result<tauri::WebviewWindow<tauri::Wry>, _> =
+                WebviewWindowBuilder::new(
+                    &app_clone,
+                    "record-info",
+                    WebviewUrl::App(info_url.into()),
+                )
+                .title("sip-cc info")
+                .transparent(true)
+                .decorations(false)
+                .always_on_top(true)
+                .inner_size(INFO_WIDTH, INFO_HEIGHT)
+                .position(info_x, info_y)
+                .build();
+            if let Ok(info_win) = info_result {
+                let _ = info_win.set_ignore_cursor_events(true);
+            }
+        }
     });
 
     Ok(())
@@ -185,6 +218,7 @@ pub fn video_pause(
     if let Some(active) = guard.as_ref() {
         active.session.pause();
     }
+    let _ = app.emit("recording-paused", ());
     Ok(())
 }
 
@@ -199,6 +233,7 @@ pub fn video_resume(
     if let Some(active) = guard.as_ref() {
         active.session.resume();
     }
+    let _ = app.emit("recording-resumed", ());
     Ok(())
 }
 

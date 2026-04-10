@@ -84,7 +84,7 @@ pub fn hide_overlay(app: &AppHandle) {
 
 /// 关闭录制相关的浮动窗口
 pub fn close_floating_windows(app: &AppHandle) {
-    for label in &["record-bar", "record-region"] {
+    for label in &["record-bar", "record-region", "record-info"] {
         if let Some(win) = app.get_webview_window(label) {
             let _ = win.close();
         }

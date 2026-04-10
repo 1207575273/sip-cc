@@ -185,6 +185,78 @@ html, body {
   background: #ee4444;
 }
 
+/* ========== 录制信息叠加层 ========== */
+
+#record-info {
+  position: fixed;
+  top: 0; left: 0;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 6px;
+  color: #fff;
+  font-family: "Consolas", "Courier New", "SF Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  user-select: none;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.ri-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ri-row-top {
+  margin-bottom: 2px;
+}
+
+.ri-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff4444;
+  animation: blink 1s infinite;
+  flex-shrink: 0;
+}
+
+.ri-mode {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.ri-quality {
+  font-size: 10px;
+  padding: 0 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  line-height: 16px;
+}
+
+.ri-meta {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+}
+
+.ri-time {
+  margin-top: 1px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.ri-brand {
+  margin-top: 3px;
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
 /* ========== 录制区域指示框 ========== */
 
 #record-region-border {

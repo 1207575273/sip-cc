@@ -34,7 +34,7 @@ export async function callDownloadFfmpeg(): Promise<string> {
 
 export async function callVideoStart(
   region: { x: number; y: number; width: number; height: number },
-  quality?: { fps: number; crf: number; preset: string },
+  quality?: { fps: number; crf: number; preset: string; label?: string },
 ): Promise<void> {
   return invoke("video_start", { region, quality });
 }
