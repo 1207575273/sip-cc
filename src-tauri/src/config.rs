@@ -3,6 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// 与 `Cargo.toml` / 发布版本一致；配置里存此字段，用于升级时判断是否沿用旧文件。
+pub const CONFIG_FILE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum SaveDir {
@@ -42,13 +45,17 @@ impl Default for HotkeyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// 写入本文件时的应用版本；与 `CONFIG_FILE_VERSION` 不一致时整表重置为默认（新能力用新默认值）
+    #[serde(default)]
+    pub version: String,
     /// 保存目录类型：desktop / custom
     pub save_dir: SaveDir,
     /// 自定义保存目录路径（save_dir=custom 时使用）
     pub custom_save_dir: Option<String>,
     /// GIF 录制帧率
     pub gif_fps: u16,
-    /// GIF 最大录制时长（秒）
+    /// GIF 最大录制时长（秒，1～600，默认 10 分钟）
+    #[serde(default = "default_gif_max_duration")]
     pub gif_max_duration_secs: u64,
     /// 快捷键配置
     #[serde(default)]
@@ -61,22 +68,31 @@ pub struct AppConfig {
     pub video_preset: String,
     #[serde(default = "default_video_max_duration")]
     pub video_max_duration_secs: u64,
+    /// 视频编码完成后是否复制文件到剪贴板（默认关闭，避免大体积 MP4 占用剪贴板）
+    #[serde(default)]
+    pub video_copy_to_clipboard: bool,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            version: CONFIG_FILE_VERSION.to_string(),
             save_dir: SaveDir::Desktop,
             custom_save_dir: None,
             gif_fps: 10,
-            gif_max_duration_secs: 180,
+            gif_max_duration_secs: 600,
             hotkeys: HotkeyConfig::default(),
             video_fps: 15,
             video_crf: 23,
             video_preset: "medium".to_string(),
-            video_max_duration_secs: 300,
+            video_max_duration_secs: 1800,
+            video_copy_to_clipboard: false,
         }
     }
+}
+
+fn default_gif_max_duration() -> u64 {
+    600
 }
 
 fn default_video_hotkey() -> String {
@@ -87,7 +103,9 @@ fn default_video_hotkey() -> String {
 fn default_video_fps() -> u16 { 15 }
 fn default_video_crf() -> u8 { 23 }
 fn default_video_preset() -> String { "medium".to_string() }
-fn default_video_max_duration() -> u64 { 300 }
+fn default_video_max_duration() -> u64 {
+    1800
+}
 
 pub struct ConfigManager {
     pub config: Mutex<AppConfig>,
@@ -124,17 +142,33 @@ impl ConfigManager {
             Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => AppConfig::default(),
         };
-        // 校验配置范围，防止非法值
+
+        if config.version != CONFIG_FILE_VERSION {
+            config = AppConfig::default();
+            if let Some(parent) = path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            if let Ok(text) = serde_json::to_string_pretty(&config) {
+                let _ = fs::write(path, text);
+            }
+            return config;
+        }
+
+        Self::clamp_config_values(&mut config);
+        config
+    }
+
+    fn clamp_config_values(config: &mut AppConfig) {
         config.gif_fps = config.gif_fps.clamp(1, 60);
         config.gif_max_duration_secs = config.gif_max_duration_secs.clamp(1, 600);
         config.video_fps = config.video_fps.clamp(5, 60);
         config.video_crf = config.video_crf.clamp(0, 51);
-        config.video_max_duration_secs = config.video_max_duration_secs.clamp(1, 600);
+        config.video_max_duration_secs = config.video_max_duration_secs.clamp(1, 7200);
         if !["ultrafast", "superfast", "veryfast", "faster", "fast",
-             "medium", "slow", "slower", "veryslow"].contains(&config.video_preset.as_str()) {
+             "medium", "slow", "slower", "veryslow"].contains(&config.video_preset.as_str())
+        {
             config.video_preset = "medium".to_string();
         }
-        config
     }
 
     /// 确保配置文件存在，不存在则写入默认配置
@@ -180,11 +214,13 @@ mod tests {
         assert_eq!(config.save_dir, SaveDir::Desktop);
         assert_eq!(config.custom_save_dir, None);
         assert_eq!(config.gif_fps, 10);
-        assert_eq!(config.gif_max_duration_secs, 180);
+        assert_eq!(config.gif_max_duration_secs, 600);
         assert_eq!(config.video_fps, 15);
         assert_eq!(config.video_crf, 23);
         assert_eq!(config.video_preset, "medium");
-        assert_eq!(config.video_max_duration_secs, 300);
+        assert_eq!(config.video_max_duration_secs, 1800);
+        assert!(!config.video_copy_to_clipboard);
+        assert_eq!(config.version, CONFIG_FILE_VERSION);
     }
 
     #[test]
@@ -210,10 +246,12 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let restored: AppConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.gif_fps, 10);
-        assert_eq!(restored.gif_max_duration_secs, 180);
+        assert_eq!(restored.gif_max_duration_secs, 600);
         assert_eq!(restored.save_dir, SaveDir::Desktop);
         assert_eq!(restored.video_fps, 15);
-        assert_eq!(restored.video_max_duration_secs, 300);
+        assert_eq!(restored.video_max_duration_secs, 1800);
+        assert!(!restored.video_copy_to_clipboard);
+        assert_eq!(restored.version, CONFIG_FILE_VERSION);
     }
 
     #[test]

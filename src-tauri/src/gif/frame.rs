@@ -20,8 +20,8 @@ pub struct RecordingSession {
 
 impl RecordingSession {
     pub fn start(
-        x: u32,
-        y: u32,
+        x: i32,
+        y: i32,
         width: u32,
         height: u32,
         fps: u16,
@@ -51,7 +51,7 @@ impl RecordingSession {
                 let frame_start = Instant::now();
 
                 // 直接截取指定区域（比截全屏再裁剪性能高很多）
-                match capture::capture_region(x, y, width, height) {
+                match capture::capture_recording_frame(x, y, width, height) {
                     Ok(image) => {
                         if let Err(e) = encoder.add_frame(
                             image.as_raw(),

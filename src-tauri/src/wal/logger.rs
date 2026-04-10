@@ -6,9 +6,10 @@ use std::sync::Mutex;
 
 use crate::config::ConfigManager;
 
-#[allow(dead_code)]
 pub enum Level {
     Info,
+    Warn,
+    #[allow(dead_code)]
     Error,
 }
 
@@ -16,6 +17,7 @@ impl std::fmt::Display for Level {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Level::Info => write!(f, "INFO"),
+            Level::Warn => write!(f, "WARN"),
             Level::Error => write!(f, "ERROR"),
         }
     }
@@ -63,6 +65,10 @@ impl WalLogger {
 
     pub fn info(&self, tag: &str, message: &str) {
         self.log(Level::Info, tag, message);
+    }
+
+    pub fn warn(&self, tag: &str, message: &str) {
+        self.log(Level::Warn, tag, message);
     }
 
     #[allow(dead_code)]

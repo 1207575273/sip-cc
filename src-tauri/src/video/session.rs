@@ -18,8 +18,8 @@ pub struct VideoRecordingSession {
 
 impl VideoRecordingSession {
     pub fn start(
-        x: u32,
-        y: u32,
+        x: i32,
+        y: i32,
         width: u32,
         height: u32,
         fps: u16,
@@ -55,7 +55,7 @@ impl VideoRecordingSession {
                 let frame_start = Instant::now();
                 frame_count += 1;
 
-                match capture::capture_region(x, y, width, height) {
+                match capture::capture_recording_frame(x, y, width, height) {
                     Ok(image) => {
                         let frame_path = tmp_dir.join(format!("frame_{:06}.png", frame_count));
                         if let Err(e) = image.save(&frame_path) {

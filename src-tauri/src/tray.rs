@@ -4,6 +4,7 @@ use tauri::{
     AppHandle, Manager,
 };
 
+use crate::commands::snap_cmd::macos_overlay_window_count;
 use crate::config::{ConfigManager, SaveDir};
 use crate::wal::logger::WalLogger;
 
@@ -174,7 +175,16 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         }
         "quit" => {
             wal.info("APP", "应用退出");
-            for label in &["overlay", "record-bar", "record-region", "ffmpeg-download"] {
+            if let Some(win) = app.get_webview_window("overlay") {
+                let _ = win.destroy();
+            }
+            for i in 0..macos_overlay_window_count(app) {
+                let label = format!("overlay-{}", i);
+                if let Some(win) = app.get_webview_window(&label) {
+                    let _ = win.destroy();
+                }
+            }
+            for label in &["record-bar", "record-region", "record-info", "ffmpeg-download"] {
                 if let Some(win) = app.get_webview_window(label) {
                     let _ = win.destroy();
                 }

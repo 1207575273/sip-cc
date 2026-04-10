@@ -1,13 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export interface MonitorInfo {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scale_factor: number;
+  is_primary: boolean;
+}
+
+export async function callGetScreenInfo(): Promise<MonitorInfo[]> {
+  return invoke<MonitorInfo[]>("get_screen_info");
+}
+
 export async function callSnap(region: {
   x: number; y: number; width: number; height: number;
+  monitor_index?: number;
 }): Promise<string> {
   return invoke<string>("snap_region", { region });
 }
 
 export async function callGifStart(region: {
   x: number; y: number; width: number; height: number;
+  monitor_index?: number;
 }): Promise<void> {
   return invoke("gif_start", { region });
 }
@@ -33,7 +48,10 @@ export async function callDownloadFfmpeg(): Promise<string> {
 }
 
 export async function callVideoStart(
-  region: { x: number; y: number; width: number; height: number },
+  region: {
+    x: number; y: number; width: number; height: number;
+    monitor_index?: number;
+  },
   quality?: { fps: number; crf: number; preset: string; label?: string },
 ): Promise<void> {
   return invoke("video_start", { region, quality });

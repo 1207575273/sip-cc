@@ -56,7 +56,7 @@ Snipaste 好用但不支持 GIF/视频录制，市面上能录屏的工具要么
 | **首次运行** | 无额外步骤 | 需授权**辅助功能权限**（自动弹窗引导） | 无额外步骤 |
 | **截屏剪贴板** | RGBA 图像数据 | PNG 格式（兼容微信等应用） | RGBA 图像数据 |
 | **GIF 剪贴板** | 文件路径文本 | 文件引用（可直接粘贴为文件） | 文件路径文本 |
-| **视频剪贴板** | 文件路径文本 | 文件引用 | 文件路径文本 |
+| **视频剪贴板** | 默认不写入；`video_copy_to_clipboard: true` 时同左 | 默认不写入；开启后同左 | 默认不写入；开启后同左 |
 | **全屏遮罩** | 系统全屏 | 窗口覆盖屏幕（避免独立 Space 黑屏） | 系统全屏 |
 | **FFmpeg 下载** | `.7z` (~32MB) | `.zip` (ARM64/x64 自动识别) | `.tar.xz` |
 
@@ -94,14 +94,45 @@ npm run tauri build  # 打包
 
 ## 配置
 
-首次启动自动生成 `~/.sip-cc/config.json`：
+首次启动自动生成 `~/.sip-cc/config.json`。下面按 **GIF** 与 **视频** 分组说明；完整示例见文末。
+
+**版本与升级**：`version` 字段等于**当前应用版本**（与安装包一致）。若本地文件里的 `version` 与当前应用不一致（含旧版无此字段），启动时会**整表重置为默认配置**并写回，便于新版本增加配置项时统一升级；业务代码无需单独判断。
+
+### 通用（保存目录与快捷键）
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `version` | 配置架构版本，与当前应用版本一致 | 见安装包版本号 |
+| `save_dir` | 保存位置：`desktop` 或 `custom` | `desktop` |
+| `custom_save_dir` | 自定义保存目录路径 | `null` |
+| `hotkeys` | 快捷键（也可通过托盘「快捷键设置」修改） | 见下方 JSON |
+
+### GIF 录制（与视频相互独立）
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `gif_fps` | GIF 帧率 | `10` |
+| `gif_max_duration_secs` | 单次 GIF 最长录制时间（秒，范围 1～600） | `600`（10 分钟） |
+
+### 视频录制（FFmpeg MP4）
+
+| 字段 | 说明 | 默认值 |
+|------|------|--------|
+| `video_fps` | 视频帧率（未选质量档时兜底；档位内会覆盖） | `15` |
+| `video_crf` | 画质（越小越清晰，约 18～28） | `23` |
+| `video_preset` | FFmpeg x264 编码速度预设 | `medium` |
+| `video_max_duration_secs` | 单次视频最长录制时间（秒，1～7200） | `1800`（30 分钟） |
+| `video_copy_to_clipboard` | 编码完成后是否把 MP4 路径写入剪贴板 | `false`（大文件建议关） |
+
+### `config.json` 完整示例
 
 ```json
 {
+  "version": "0.8.0",
   "save_dir": "desktop",
   "custom_save_dir": null,
   "gif_fps": 10,
-  "gif_max_duration_secs": 180,
+  "gif_max_duration_secs": 600,
   "hotkeys": {
     "snap": "F1",
     "gif": "F3",
@@ -111,21 +142,10 @@ npm run tauri build  # 打包
   "video_fps": 15,
   "video_crf": 23,
   "video_preset": "medium",
-  "video_max_duration_secs": 300
+  "video_max_duration_secs": 1800,
+  "video_copy_to_clipboard": false
 }
 ```
-
-| 字段 | 说明 | 默认值 |
-|------|------|--------|
-| `save_dir` | 保存位置：`desktop` 或 `custom` | `desktop` |
-| `custom_save_dir` | 自定义保存目录路径 | `null` |
-| `gif_fps` | GIF 录制帧率 | `10` |
-| `gif_max_duration_secs` | GIF 最大录制时长（秒） | `180`（3分钟） |
-| `hotkeys` | 快捷键配置（也可通过 UI 修改） | 见上方 |
-| `video_fps` | 视频录制帧率 | `15` |
-| `video_crf` | 视频质量（越小越清晰，18-28 合理） | `23` |
-| `video_preset` | FFmpeg 编码速度预设 | `medium` |
-| `video_max_duration_secs` | 视频最大录制时长（秒） | `300`（5分钟） |
 
 可通过托盘菜单「打开配置文件」直接编辑，也可在托盘菜单中切换保存目录。
 
