@@ -2,7 +2,6 @@ use image::RgbaImage;
 use serde::Deserialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
-use xcap::Monitor;
 
 use crate::config::ConfigManager;
 use crate::output::{clipboard, save};
@@ -24,24 +23,24 @@ pub struct ScreenBuffer {
     pub image: Mutex<Option<RgbaImage>>,
 }
 
-pub fn get_scale_factor() -> f64 {
-    Monitor::all()
+pub fn get_scale_factor(app: &AppHandle) -> f64 {
+    app.primary_monitor()
         .ok()
-        .and_then(|monitors| monitors.into_iter().find(|m| m.is_primary().unwrap_or(false)))
-        .and_then(|m| m.scale_factor().ok())
-        .unwrap_or(1.0) as f64
+        .flatten()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0)
 }
 
 /// 获取主显示器逻辑尺寸（用于 macOS 模拟全屏）
-fn get_screen_logical_size() -> (f64, f64) {
-    let scale = get_scale_factor();
-    Monitor::all()
+/// 使用 Tauri 的 Monitor API，避免 xcap 在 macOS 上物理/逻辑像素歧义
+fn get_screen_logical_size(app: &AppHandle) -> (f64, f64) {
+    app.primary_monitor()
         .ok()
-        .and_then(|monitors| monitors.into_iter().find(|m| m.is_primary().unwrap_or(false)))
+        .flatten()
         .map(|m| {
-            let w = m.width().unwrap_or(1920) as f64 / scale;
-            let h = m.height().unwrap_or(1080) as f64 / scale;
-            (w, h)
+            let phys = m.size();
+            let scale = m.scale_factor();
+            (phys.width as f64 / scale, phys.height as f64 / scale)
         })
         .unwrap_or((1920.0, 1080.0))
 }
@@ -56,7 +55,7 @@ pub fn open_overlay_window(app: &AppHandle) -> Result<(), String> {
 fn show_overlay(app: &AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("overlay") {
         if cfg!(target_os = "macos") {
-            let (w, h) = get_screen_logical_size();
+            let (w, h) = get_screen_logical_size(app);
             let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(0.0, 0.0)));
             let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w, h)));
         } else {
@@ -106,7 +105,7 @@ pub fn close_overlay(app: AppHandle) -> Result<(), String> {
 pub fn snap_region(app: AppHandle, region: Region) -> Result<String, String> {
     let wal = app.state::<WalLogger>();
 
-    let scale = get_scale_factor();
+    let scale = get_scale_factor(&app);
     let phys_x = (region.x as f64 * scale) as u32;
     let phys_y = (region.y as f64 * scale) as u32;
     let phys_w = (region.width as f64 * scale) as u32;

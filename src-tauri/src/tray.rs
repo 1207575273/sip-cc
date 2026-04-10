@@ -1,6 +1,6 @@
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager,
 };
 
@@ -64,14 +64,32 @@ fn build_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, Box<dyn std::error::E
 pub fn create_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = build_menu(app)?;
 
-    TrayIconBuilder::with_id("main")
+    let mut builder = TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
-        .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| {
             handle_menu_event(app, event.id.as_ref());
-        })
-        .build(app)?;
+        });
+
+    if cfg!(target_os = "macos") {
+        builder = builder.show_menu_on_left_click(true);
+    } else {
+        builder = builder
+            .show_menu_on_left_click(false)
+            .on_tray_icon_event(|tray, event| {
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    let app = tray.app_handle();
+                    let _ = crate::commands::snap_cmd::open_snap_overlay(app);
+                }
+            });
+    }
+
+    builder.build(app)?;
 
     Ok(())
 }
