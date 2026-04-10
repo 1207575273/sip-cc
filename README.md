@@ -128,7 +128,7 @@ npm run tauri build  # 打包
 
 ```json
 {
-  "version": "0.8.2",
+  "version": "0.8.3",
   "save_dir": "desktop",
   "custom_save_dir": null,
   "gif_fps": 10,
