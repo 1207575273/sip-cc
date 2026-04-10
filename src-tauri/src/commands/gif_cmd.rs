@@ -13,6 +13,9 @@ const RECORD_BAR_OFFSET_Y: f64 = 6.0;
 const WINDOW_CLOSE_DELAY_MS: u64 = 50;
 const OVERLAY_HIDE_DELAY_MS: u64 = 50;
 const OVERLAY_SETTLE_DELAY_MS: u64 = 150;
+const INFO_WIDTH: f64 = 168.0;
+const INFO_HEIGHT: f64 = 82.0;
+const INFO_MARGIN: f64 = 6.0;
 
 pub struct RecordingState {
     pub session: Mutex<Option<RecordingSession>>,
@@ -101,6 +104,31 @@ pub fn gif_start(
         if let Ok(region_win) = region_result {
             let _ = region_win.set_ignore_cursor_events(true);
         }
+
+        if (log_w as f64) > INFO_WIDTH + INFO_MARGIN * 2.0 {
+            let info_x = log_x as f64 + log_w as f64 - INFO_WIDTH - INFO_MARGIN;
+            let info_y = log_y as f64 + INFO_MARGIN;
+            let info_url = format!(
+                "index.html?view=record-info&mode=gif&w={}&h={}&fps={}",
+                log_w, log_h, fps
+            );
+            let info_result: Result<tauri::WebviewWindow<tauri::Wry>, _> =
+                WebviewWindowBuilder::new(
+                    &app_clone,
+                    "record-info",
+                    WebviewUrl::App(info_url.into()),
+                )
+                .title("sip-cc info")
+                .transparent(true)
+                .decorations(false)
+                .always_on_top(true)
+                .inner_size(INFO_WIDTH, INFO_HEIGHT)
+                .position(info_x, info_y)
+                .build();
+            if let Ok(info_win) = info_result {
+                let _ = info_win.set_ignore_cursor_events(true);
+            }
+        }
     });
 
     Ok(())
@@ -112,6 +140,7 @@ pub fn gif_pause(app: AppHandle, recording: State<'_, RecordingState>) -> Result
     wal.info("GIF", "录制暂停");
     let guard = recording.session.lock().map_err(|e| e.to_string())?;
     if let Some(session) = guard.as_ref() { session.pause(); }
+    let _ = app.emit("recording-paused", ());
     Ok(())
 }
 
@@ -121,6 +150,7 @@ pub fn gif_resume(app: AppHandle, recording: State<'_, RecordingState>) -> Resul
     wal.info("GIF", "录制继续");
     let guard = recording.session.lock().map_err(|e| e.to_string())?;
     if let Some(session) = guard.as_ref() { session.resume(); }
+    let _ = app.emit("recording-resumed", ());
     Ok(())
 }
 

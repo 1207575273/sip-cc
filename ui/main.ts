@@ -4,6 +4,7 @@ import { mountVideoOverlay } from "./views/VideoOverlay";
 import { mountFfmpegDownload } from "./views/FfmpegDownload";
 import { mountRecordBar } from "./views/RecordBar";
 import { mountRecordRegion } from "./views/RecordRegion";
+import { mountRecordInfo } from "./views/RecordInfo";
 import { mountAbout } from "./views/About";
 import { mountHotkeySettings } from "./views/HotkeySettings";
 import { listen } from "@tauri-apps/api/event";
@@ -16,6 +17,8 @@ if (view === "record-bar") {
   mountRecordBar(container);
 } else if (view === "record-region") {
   mountRecordRegion(container);
+} else if (view === "record-info") {
+  mountRecordInfo(container);
 } else if (view === "ffmpeg-download") {
   mountFfmpegDownload(container);
 } else if (view === "about") {

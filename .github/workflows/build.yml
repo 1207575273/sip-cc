@@ -15,11 +15,13 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       bumped: ${{ steps.check.outputs.bumped }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: release
+          fetch-depth: 0
 
       - name: Read current version
         id: version
@@ -57,6 +59,31 @@ jobs:
             echo "Tag app-v${VERSION} does not exist, no bump needed"
             echo "bumped=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname --list 'app-v*' | head -1)
+          echo "Previous tag: ${PREV_TAG:-none}"
+
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log --pretty=format:"- %s (%h)" --no-merges -30)
+          else
+            LOG=$(git log --pretty=format:"- %s (%h)" --no-merges "${PREV_TAG}..HEAD")
+          fi
+
+          # 过滤掉自动版本递增的提交
+          LOG=$(echo "$LOG" | grep -v "^- chore: auto bump" || true)
+
+          if [ -z "$LOG" ]; then
+            LOG="- 常规更新与 Bug 修复"
+          fi
+
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            echo "$LOG"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     needs: bump-version
@@ -139,8 +166,9 @@ jobs:
           releaseName: 'sip-cc v__VERSION__'
           releaseBody: |
             ## 更新内容
-            请查看下方资产文件下载对应平台安装包。
+            ${{ needs.bump-version.outputs.changelog }}
 
+            ## 下载
             | 平台 | 文件 |
             |------|------|
             | macOS (Apple Silicon) | `*.dmg` / `*.app.tar.gz` |
