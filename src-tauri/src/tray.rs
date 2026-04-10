@@ -17,6 +17,9 @@ fn build_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, Box<dyn std::error::E
     let snap_item = MenuItem::with_id(app, "snap", &format!("截屏\t{snap_key}"), true, None::<&str>)?;
     let gif_item = MenuItem::with_id(app, "gif", &format!("录制 GIF\t{gif_key}"), true, None::<&str>)?;
 
+    let video_key = &config.hotkeys.video;
+    let video_item = MenuItem::with_id(app, "video", &format!("录制视频\t{video_key}"), true, None::<&str>)?;
+
     let sep1 = PredefinedMenuItem::separator(app)?;
 
     let dir_desktop = CheckMenuItem::with_id(
@@ -47,7 +50,7 @@ fn build_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, Box<dyn std::error::E
     let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[
-        &snap_item, &gif_item, &sep1,
+        &snap_item, &gif_item, &video_item, &sep1,
         &dir_submenu, &sep2,
         &hotkey_settings, &open_config, &sep3,
         &about_item,
@@ -109,6 +112,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             wal.info("TRAY", "点击录制GIF菜单");
             let _ = crate::commands::gif_cmd::open_gif_overlay(app);
         }
+        "video" => {
+            wal.info("TRAY", "点击录制视频菜单");
+            let _ = crate::commands::video_cmd::open_video_overlay(app);
+        }
         "dir_desktop" => {
             let mut config = config_manager.config.lock().unwrap();
             config.save_dir = SaveDir::Desktop;
@@ -149,7 +156,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         }
         "quit" => {
             wal.info("APP", "应用退出");
-            for label in &["overlay", "record-bar", "record-region"] {
+            for label in &["overlay", "record-bar", "record-region", "ffmpeg-download"] {
                 if let Some(win) = app.get_webview_window(label) {
                     let _ = win.destroy();
                 }

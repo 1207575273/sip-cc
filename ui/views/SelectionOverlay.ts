@@ -15,6 +15,7 @@ export interface OverlayConfig {
   buttonText: string;
   toolbarWidth: number;
   onConfirm: (x: number, y: number, w: number, h: number) => Promise<unknown>;
+  renderExtra?: (slot: HTMLElement) => void;
 }
 
 async function hideOverlay(): Promise<void> {
@@ -39,10 +40,15 @@ export function mountSelectionOverlay(container: HTMLElement, config: OverlayCon
   toolbar.className = "selection-toolbar";
   toolbar.style.display = "none";
   toolbar.innerHTML = `
+    <div class="toolbar-extra" id="toolbar-extra"></div>
     <button class="toolbar-btn toolbar-btn-save" id="btn-confirm">${config.buttonText}</button>
     <button class="toolbar-btn toolbar-btn-exit" id="btn-exit">退出</button>
   `;
   container.appendChild(toolbar);
+
+  if (config.renderExtra) {
+    config.renderExtra(toolbar.querySelector("#toolbar-extra")!);
+  }
 
   function drawOverlay(): void {
     ctx.clearRect(0, 0, canvas.width, canvas.height);

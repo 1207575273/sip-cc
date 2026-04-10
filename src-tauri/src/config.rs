@@ -14,6 +14,8 @@ pub enum SaveDir {
 pub struct HotkeyConfig {
     pub snap: String,
     pub gif: String,
+    #[serde(default = "default_video_hotkey")]
+    pub video: String,
     pub force_quit: String,
 }
 
@@ -24,12 +26,14 @@ impl Default for HotkeyConfig {
             Self {
                 snap: "Ctrl+Shift+1".to_string(),     // macOS 上 Ctrl 映射为 Cmd
                 gif: "Ctrl+Shift+3".to_string(),
+                video: "Ctrl+Shift+5".to_string(),
                 force_quit: "Ctrl+C,Ctrl+C".to_string(),
             }
         } else {
             Self {
                 snap: "F1".to_string(),
                 gif: "F3".to_string(),
+                video: "F5".to_string(),
                 force_quit: "Ctrl+C,Ctrl+C".to_string(),
             }
         }
@@ -49,6 +53,14 @@ pub struct AppConfig {
     /// 快捷键配置
     #[serde(default)]
     pub hotkeys: HotkeyConfig,
+    #[serde(default = "default_video_fps")]
+    pub video_fps: u16,
+    #[serde(default = "default_video_crf")]
+    pub video_crf: u8,
+    #[serde(default = "default_video_preset")]
+    pub video_preset: String,
+    #[serde(default = "default_video_max_duration")]
+    pub video_max_duration_secs: u64,
 }
 
 impl Default for AppConfig {
@@ -59,9 +71,23 @@ impl Default for AppConfig {
             gif_fps: 10,
             gif_max_duration_secs: 180,
             hotkeys: HotkeyConfig::default(),
+            video_fps: 15,
+            video_crf: 23,
+            video_preset: "medium".to_string(),
+            video_max_duration_secs: 300,
         }
     }
 }
+
+fn default_video_hotkey() -> String {
+    if cfg!(target_os = "macos") { "Ctrl+Shift+5".to_string() }
+    else { "F5".to_string() }
+}
+
+fn default_video_fps() -> u16 { 15 }
+fn default_video_crf() -> u8 { 23 }
+fn default_video_preset() -> String { "medium".to_string() }
+fn default_video_max_duration() -> u64 { 300 }
 
 pub struct ConfigManager {
     pub config: Mutex<AppConfig>,
@@ -101,6 +127,13 @@ impl ConfigManager {
         // 校验配置范围，防止非法值
         config.gif_fps = config.gif_fps.clamp(1, 60);
         config.gif_max_duration_secs = config.gif_max_duration_secs.clamp(1, 600);
+        config.video_fps = config.video_fps.clamp(5, 60);
+        config.video_crf = config.video_crf.clamp(0, 51);
+        config.video_max_duration_secs = config.video_max_duration_secs.clamp(1, 600);
+        if !["ultrafast", "superfast", "veryfast", "faster", "fast",
+             "medium", "slow", "slower", "veryslow"].contains(&config.video_preset.as_str()) {
+            config.video_preset = "medium".to_string();
+        }
         config
     }
 
@@ -148,6 +181,10 @@ mod tests {
         assert_eq!(config.custom_save_dir, None);
         assert_eq!(config.gif_fps, 10);
         assert_eq!(config.gif_max_duration_secs, 180);
+        assert_eq!(config.video_fps, 15);
+        assert_eq!(config.video_crf, 23);
+        assert_eq!(config.video_preset, "medium");
+        assert_eq!(config.video_max_duration_secs, 300);
     }
 
     #[test]
@@ -156,9 +193,11 @@ mod tests {
         if cfg!(target_os = "macos") {
             assert_eq!(hotkeys.snap, "Ctrl+Shift+1");
             assert_eq!(hotkeys.gif, "Ctrl+Shift+3");
+            assert_eq!(hotkeys.video, "Ctrl+Shift+5");
         } else {
             assert_eq!(hotkeys.snap, "F1");
             assert_eq!(hotkeys.gif, "F3");
+            assert_eq!(hotkeys.video, "F5");
         }
         assert_eq!(hotkeys.force_quit, "Ctrl+C,Ctrl+C");
     }
@@ -173,6 +212,8 @@ mod tests {
         assert_eq!(restored.gif_fps, 10);
         assert_eq!(restored.gif_max_duration_secs, 180);
         assert_eq!(restored.save_dir, SaveDir::Desktop);
+        assert_eq!(restored.video_fps, 15);
+        assert_eq!(restored.video_max_duration_secs, 300);
     }
 
     #[test]
@@ -219,6 +260,21 @@ mod tests {
     }
 
     // ========== SaveDir 枚举测试 ==========
+
+    #[test]
+    fn should_clamp_video_fps() {
+        let json = r#"{"save_dir":"desktop","custom_save_dir":null,"gif_fps":10,"gif_max_duration_secs":180,"video_fps":999,"video_crf":23,"video_preset":"medium","video_max_duration_secs":300}"#;
+        let mut config: AppConfig = serde_json::from_str(json).unwrap();
+        config.video_fps = config.video_fps.clamp(5, 60);
+        assert_eq!(config.video_fps, 60);
+    }
+
+    #[test]
+    fn should_reset_invalid_video_preset() {
+        let json = r#"{"save_dir":"desktop","custom_save_dir":null,"gif_fps":10,"gif_max_duration_secs":180,"video_fps":15,"video_crf":23,"video_preset":"invalid","video_max_duration_secs":300}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.video_preset, "invalid");
+    }
 
     #[test]
     fn should_serialize_save_dir() {

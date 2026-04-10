@@ -1,6 +1,7 @@
 pub mod gif_cmd;
 pub mod hotkey_cmd;
 pub mod snap_cmd;
+pub mod video_cmd;
 
 /// 用系统默认浏览器打开 URL
 #[tauri::command]

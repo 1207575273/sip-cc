@@ -13,7 +13,7 @@ export function mountRecordRegion(container: HTMLElement): void {
   const wrapper = document.createElement("div");
   wrapper.id = "record-region-border";
   wrapper.innerHTML = `
-    <div class="region-border" style="left:0;top:0;width:100%;height:100%"></div>
+    <div class="region-border"></div>
     <div class="region-label">REC ${w}×${h}</div>
   `;
 

@@ -1,6 +1,16 @@
 import { pauseGif, resumeGif, stopGif } from "../bridge/gifBridge";
+import { pauseVideo, resumeVideo, stopVideo } from "../bridge/videoBridge";
+import { listen } from "@tauri-apps/api/event";
 
 export function mountRecordBar(container: HTMLElement): void {
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode") || "gif";
+  const isVideo = mode === "video";
+
+  const pause = isVideo ? pauseVideo : pauseGif;
+  const resume = isVideo ? resumeVideo : resumeGif;
+  const stop = isVideo ? stopVideo : stopGif;
+
   const bar = document.createElement("div");
   bar.id = "record-bar";
   bar.innerHTML = `
@@ -33,13 +43,13 @@ export function mountRecordBar(container: HTMLElement): void {
 
   pauseBtn.addEventListener("click", async () => {
     if (isPaused) {
-      await resumeGif();
+      await resume();
       isPaused = false;
       pauseBtn.textContent = "暂停";
       statusEl.textContent = "录制中";
       indicatorEl.style.color = "#ff4444";
     } else {
-      await pauseGif();
+      await pause();
       isPaused = true;
       pauseBtn.textContent = "继续";
       statusEl.textContent = "已暂停";
@@ -49,9 +59,26 @@ export function mountRecordBar(container: HTMLElement): void {
 
   stopBtn.addEventListener("click", async () => {
     clearInterval(timerHandle);
-    await stopGif();
-    // gif_stop 会在独立线程关闭 record-bar 和 record-region 窗口
+    await stop();
   });
+
+  if (isVideo) {
+    listen<[number, number]>("video-encoding-progress", (event) => {
+      const [current, total] = event.payload;
+      const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+      statusEl.textContent = `编码中 ${pct}%`;
+      timerEl.textContent = `${current}/${total}`;
+      indicatorEl.style.color = "#4a90d9";
+      pauseBtn.disabled = true;
+      stopBtn.disabled = true;
+    });
+
+    listen<string>("video-encoding-error", (event) => {
+      statusEl.textContent = "编码失败";
+      indicatorEl.style.color = "#ff4444";
+      console.error("video encode error:", event.payload);
+    });
+  }
 
   document.addEventListener("keydown", async (e: KeyboardEvent) => {
     if (e.code === "Space") { e.preventDefault(); pauseBtn.click(); }
