@@ -7,7 +7,6 @@ import { mountRecordRegion } from "./views/RecordRegion";
 import { mountRecordInfo } from "./views/RecordInfo";
 import { mountAbout } from "./views/About";
 import { mountHotkeySettings } from "./views/HotkeySettings";
-import { mountLongSnapControl } from "./views/LongSnapControl";
 import { listen } from "@tauri-apps/api/event";
 
 const container = document.getElementById("app")!;
@@ -26,8 +25,6 @@ if (view === "record-bar") {
   mountAbout(container);
 } else if (view === "hotkey-settings") {
   mountHotkeySettings(container);
-} else if (view === "long-snap-control") {
-  mountLongSnapControl(container);
 } else {
   setupOverlay();
 }

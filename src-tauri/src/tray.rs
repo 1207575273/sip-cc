@@ -184,7 +184,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                     let _ = win.destroy();
                 }
             }
-            for label in &["record-bar", "record-region", "record-info", "long-snap-control", "ffmpeg-download"] {
+            for label in &["record-bar", "record-region", "record-info", "ffmpeg-download"] {
                 if let Some(win) = app.get_webview_window(label) {
                     let _ = win.destroy();
                 }

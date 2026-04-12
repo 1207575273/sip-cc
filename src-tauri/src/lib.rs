@@ -10,7 +10,6 @@ mod video;
 
 use commands::gif_cmd::RecordingState;
 use commands::video_cmd::VideoRecordingState;
-use commands::long_snap_cmd::LongSnapManualState;
 use commands::snap_cmd::{MacosOverlayCount, ScreenBuffer};
 use config::ConfigManager;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,12 +41,10 @@ pub fn run() {
             bounds: Mutex::new(None),
             macos_monitors: Mutex::new(None),
         })
-        .manage(LongSnapManualState(std::sync::Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             commands::snap_cmd::snap_region,
             commands::snap_cmd::close_overlay,
             commands::snap_cmd::set_overlay_mode,
-            commands::snap_cmd::set_overlay_cursor_passthrough,
             commands::snap_cmd::get_screen_info,
             commands::gif_cmd::gif_start,
             commands::gif_cmd::gif_pause,
@@ -65,11 +62,6 @@ pub fn run() {
             commands::video_cmd::video_pause,
             commands::video_cmd::video_resume,
             commands::video_cmd::video_stop,
-            commands::long_snap_cmd::long_snap_supported,
-            commands::long_snap_cmd::long_snap_start,
-            commands::long_snap_cmd::long_snap_append_frame,
-            commands::long_snap_cmd::long_snap_finish,
-            commands::long_snap_cmd::long_snap_cancel,
         ])
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             let wal = app.state::<WalLogger>();
