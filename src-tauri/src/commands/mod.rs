@@ -1,6 +1,5 @@
 pub mod gif_cmd;
 pub mod hotkey_cmd;
-pub mod long_snap_cmd;
 pub mod snap_cmd;
 pub mod video_cmd;
 
